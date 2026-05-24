@@ -103,26 +103,35 @@ Split is done by `DataPools` using **stream seed** — same seed in Phase 1 and 
 │   │   └── stream.py    # build_stream() — frozen adaptation stream
 │   ├── tta/
 │   │   └── tent.py      # official TENT (github.com/DequanWang/tent), unchanged
-│   └── metrics/
-│       ├── ood_scores.py   # energy_score, max_logit_score, max_softmax_score
-│       ├── ood_metrics.py  # auroc, fpr_at_tpr, oscr, h_score
-│       └── geometry.py     # feature_norms, cosine_to_weights, centroid_distances, …
+│   ├── metrics/
+│   │   ├── ood_scores.py   # energy_score, max_logit_score, max_softmax_score
+│   │   ├── ood_metrics.py  # auroc, fpr_at_tpr, oscr, h_score
+│   │   └── geometry.py     # feature_norms, cosine_to_weights, centroid_distances, …
+│   └── viz/
+│       ├── common.py    # shared style: colors, rcParams
+│       ├── exp1.py      # plot AUROC + Acc trajectory (overlay multiple streams)
+│       ├── exp2.py      # plot norm/cosine/distance/confidence panels
+│       └── exp3.py      # plot BN drift heatmaps and layer profile
 │
 ├── scripts/
 │   ├── phase1_adapt.py     # Phase 1: run method on stream, save checkpoints
-│   ├── exp1_auroc.py       # AUROC + Acc trajectory; accepts multiple streams for overlay
-│   ├── exp2_geometry.py    # norm, cosine, distance, OOD confidence over t
-│   ├── exp3_layerwise.py   # BN affine drift heatmaps (checkpoint-only, no forward pass)
+│   ├── reproduce_tent.py   # closed-set TENT reproduction (matches published protocol)
+│   ├── exp1_auroc.py       # compute AUROC + Acc → results.json
+│   ├── exp2_geometry.py    # compute geometry metrics → results.json
+│   ├── exp3_layerwise.py   # compute BN drift → results.json  (no forward pass)
+│   ├── plot.py             # render figures from results JSON → figures/
 │   └── sweep.py            # run phase1_adapt over full sweep.yaml grid
 │
-├── checkpoints/
+├── checkpoints/            # gitignored
 │   └── {method}/{corruption}_{csood_source}_{alpha:.2f}_seed{seed}/
 │       ├── meta.json        # full stream spec + per-batch indices
 │       ├── base_model.pt    # full θ_0 weights (saved once)
 │       ├── theta_000.pt     # BN affine state at t=0
 │       └── theta_001.pt …
-└── results/
-    └── {method}/{stream_id}/{experiment}/
+├── results/                # gitignored — JSON metrics, one subdir per experiment
+│   └── {method}/{stream_id}/{experiment}/results.json
+└── figures/                # gitignored — PNG plots produced by scripts/plot.py
+    └── {stream_id}/
 ```
 
 ---
@@ -227,17 +236,28 @@ seed:         [0, 1, 2]
 ## 9. Run sequence
 
 ```bash
+# ── TENT reproduction (closed-set, matches published protocol) ───────────────
+uv run python scripts/reproduce_tent.py
+
 # ── Single stream (use stream.yaml defaults or override via CLI) ─────────────
 uv run python scripts/phase1_adapt.py --method tent
 uv run python scripts/phase1_adapt.py --method bn_adapt
 
-# ── Core experiments on that stream ─────────────────────────────────────────
+# ── Compute metrics (output: results/{stream}/expN/results.json) ─────────────
 uv run python scripts/exp1_auroc.py \
   --streams tent/gaussian_noise_svhn_c_0.50_seed0 \
             bn_adapt/gaussian_noise_svhn_c_0.50_seed0
 
 uv run python scripts/exp2_geometry.py --stream tent/gaussian_noise_svhn_c_0.50_seed0
 uv run python scripts/exp3_layerwise.py --stream tent/gaussian_noise_svhn_c_0.50_seed0
+
+# ── Render figures (output: figures/{stream}/expN_*.png) ─────────────────────
+uv run python scripts/plot.py --exp 1 \
+  --streams tent/gaussian_noise_svhn_c_0.50_seed0 \
+            bn_adapt/gaussian_noise_svhn_c_0.50_seed0
+
+uv run python scripts/plot.py --exp 2 --streams tent/gaussian_noise_svhn_c_0.50_seed0
+uv run python scripts/plot.py --exp 3 --streams tent/gaussian_noise_svhn_c_0.50_seed0
 
 # ── Inspect results → decide Path A or B ────────────────────────────────────
 

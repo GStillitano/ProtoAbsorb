@@ -1,5 +1,7 @@
 """Experiment 2: Norm vs alignment — norm inflation as the dominant TENT channel.
 
+Outputs results.json. Use scripts/plot.py --exp 2 to visualise.
+
 Usage:
     uv run python scripts/exp2_geometry.py --stream tent/gaussian_noise_svhn_c_0.50_seed0
 """
@@ -8,7 +10,6 @@ import json
 from pathlib import Path
 
 import torch
-import matplotlib.pyplot as plt
 import yaml
 
 from src.model import load_model, classifier_weights
@@ -113,40 +114,7 @@ def main():
         prev_pred_ood = cur_pred_ood.clone()
 
     (out_dir / "results.json").write_text(json.dumps(records, indent=2))
-    _plot(records, T, out_dir)
-    print(f"Saved to {out_dir}")
-
-
-def _plot(r: dict, T: int, out_dir: Path) -> None:
-    t = r["t"]
-    fig, axes = plt.subplots(2, 3, figsize=(15, 8))
-
-    axes[0, 0].plot(t, r["norm_id"], label="csID"); axes[0, 0].plot(t, r["norm_ood"], label="csOOD")
-    axes[0, 0].set_title("Feature norm"); axes[0, 0].legend()
-
-    axes[0, 1].plot(t, r["delta_norm"])
-    axes[0, 1].set_title("Norm gap (csID − csOOD)")
-
-    axes[0, 2].plot(t, r["cos_id"],    label="cos csID")
-    axes[0, 2].plot(t, r["cos_ood"],   label="cos csOOD")
-    axes[0, 2].plot(t, r["maxcos_id"], label="maxcos csID",  linestyle="--")
-    axes[0, 2].plot(t, r["maxcos_ood"],label="maxcos csOOD", linestyle="--")
-    axes[0, 2].set_title("Cosine alignment"); axes[0, 2].legend()
-
-    axes[1, 0].plot(t, r["dist_id"], label="csID"); axes[1, 0].plot(t, r["dist_ood"], label="csOOD")
-    axes[1, 0].set_title("Distance to nearest source centroid"); axes[1, 0].legend()
-
-    axes[1, 1].plot(t, r["conf_ood"])
-    axes[1, 1].set_title("Mean max confidence (csOOD)")
-
-    axes[1, 2].plot(t, r["change_ood"])
-    axes[1, 2].set_title("Fraction csOOD pred changed vs prev step")
-
-    for ax in axes.flat:
-        ax.set_xlabel("Step t")
-    fig.tight_layout()
-    fig.savefig(out_dir / "exp2_geometry.png", dpi=150)
-    plt.close(fig)
+    print(f"Saved: {out_dir / 'results.json'}")
 
 
 if __name__ == "__main__":
