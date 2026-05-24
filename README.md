@@ -6,6 +6,35 @@
 
 ---
 
+## Repository
+
+```
+configs/          experiment parameters: model spec, stream defaults, sweep grid
+
+src/
+  model.py        model loading, feature extraction, classifier head access
+  bn_affine.py    BN affine state (γ,β): extract / inject / save / load / evaluate
+                  evaluate() is the single Phase 2 primitive
+  centroids.py    source class centroids from θ_0 on D_csID
+  data/           dataset loaders (csID: CIFAR-10-C; csOOD: SVHN-C, Rome32 stub),
+                  seeded adapt/diagnostic pool split, frozen stream builder
+  tta/            TTA methods (TENT, official implementation unchanged)
+  metrics/        OOD scores (energy, max-logit, max-softmax),
+                  OOD metrics (AUROC, FPR95, OSCR, H-score),
+                  geometry (feature norms, cosines, centroid distances)
+  viz/            matplotlib plotting modules, one per experiment + shared style
+
+scripts/          runnable entry points: adaptation, metric computation, plotting, sweep
+
+# gitignored at runtime
+checkpoints/      BN affine checkpoints per stream (theta_*.pt, meta.json, base_model.pt)
+results/          JSON metrics, one subdir per stream × experiment
+figures/          PNG plots produced by scripts/plot.py
+data/             downloaded datasets
+```
+
+---
+
 ## Setup
 
 ```bash
@@ -21,6 +50,15 @@ Data is downloaded automatically on first run (CIFAR-10-C via RobustBench, SVHN 
 WideResNet-40-2, pretrained with AugMix+JSD on CIFAR-10 (`Hendrycks2020AugMix` via RobustBench).  
 Clean acc ≈ 95.8%, mean corruption error ≈ 11.2% on CIFAR-10-C severity 5.  
 BN always runs in train mode (batch statistics, no running stats).
+
+---
+
+## Two-phase design
+
+**Phase 1** runs a TTA method on a stream of T batches and saves BN affine state (γ, β) after each step → `checkpoints/`.  
+**Phase 2** loads any checkpoint, evaluates on a fixed held-out diagnostic set D, and computes metrics. No re-adaptation.
+
+A **stream** is identified by `(method, corruption, csood_source, α, seed)`. Alpha controls the OOD fraction per batch (0 = closed-set, 0.5 = balanced, etc.).
 
 ---
 
@@ -55,61 +93,6 @@ uv run python scripts/sweep.py --method tent
 ```
 
 ---
-
-## Two-phase design
-
-**Phase 1** runs a TTA method on a stream of T batches and saves BN affine state (γ, β) after each step → `checkpoints/`.  
-**Phase 2** loads any checkpoint, evaluates on a fixed held-out diagnostic set D, and computes metrics. No re-adaptation.
-
-A **stream** is identified by `(method, corruption, csood_source, α, seed)`. Alpha controls the OOD fraction per batch (0 = closed-set, 0.5 = balanced, etc.).
-
----
-
-## Repository
-
-```
-configs/
-  model.yaml          # RobustBench model spec
-  stream.yaml         # single-stream defaults (corruption, α, N, T, seed, …)
-  tent.yaml           # Adam lr
-  diagnostic.yaml     # D size: 2000 csID + 2000 csOOD
-  sweep.yaml          # full grid: corruptions × alphas × csood_sources × seeds
-
-src/
-  model.py            # load_model(), get_embeddings(), classifier_weights()
-  bn_affine.py        # extract / inject / save / load / evaluate  ← Phase 2 primitive
-  prototypes.py       # source class centroids μ_c^(0) from θ_0 on D_csID
-  data/
-    cifar10c.py       # csID loader
-    svhnc.py          # csOOD loader (SVHN + corruptions)
-    rome32.py         # csOOD loader stub (data not yet available)
-    pools.py          # DataPools — seeded adapt / diagnostic split
-    stream.py         # build_stream() — frozen T-batch adaptation stream
-  tta/
-    tent.py           # official TENT, unchanged
-  metrics/
-    ood_scores.py     # energy_score, max_logit_score, max_softmax_score
-    ood_metrics.py    # auroc, fpr_at_tpr, oscr, h_score
-    geometry.py       # feature_norms, cosine_to_weights, centroid_distances, …
-  viz/
-    common.py         # shared style and color palettes
-    exp1.py / exp2.py / exp3.py
-
-scripts/
-  reproduce_tent.py   # closed-set TENT reproduction, matches published protocol
-  phase1_adapt.py     # Phase 1: adapt on stream, save checkpoints
-  exp1_auroc.py       # AUROC + csID accuracy trajectory → results.json
-  exp2_geometry.py    # norm / cosine / distance / confidence → results.json
-  exp3_layerwise.py   # BN affine drift (checkpoint-only, no forward pass) → results.json
-  plot.py             # render figures from results JSON → figures/
-  sweep.py            # run phase1_adapt over full sweep grid
-
-# gitignored at runtime
-checkpoints/          # BN affine checkpoints (theta_*.pt, meta.json, base_model.pt)
-results/              # JSON metrics, one subdir per stream × experiment
-figures/              # PNG plots produced by scripts/plot.py
-data/                 # downloaded datasets
-```
 
 ## Docs
 
