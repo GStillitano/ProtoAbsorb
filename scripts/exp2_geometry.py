@@ -17,7 +17,7 @@ from src.bn_affine import evaluate
 from src.data.cifar10c import load_cifar10c_data
 from src.data.svhnc import load_svhn_c
 from src.data.pools import DataPools
-from src.prototypes import compute as compute_prototypes
+from src.centroids import compute as compute_centroids
 from src.metrics.geometry import (
     feature_norms, cosine_to_weights, max_cosine_to_weights, centroid_distances,
 )
@@ -64,9 +64,9 @@ def main():
     x_id, y_id, x_ood = load_diagnostic(meta, args.data_dir)
 
     ckpt0 = ckpt_dir / "theta_000.pt"
-    centroids = compute_prototypes(
+    centroids = compute_centroids(
         model, ckpt0, x_id, y_id, device=device,
-        cache_path=ckpt_dir / "prototypes.pt",
+        cache_path=ckpt_dir / "centroids.pt",
     )
 
     # Source-predicted class at t=0 (fixed reference for cosine tracking)

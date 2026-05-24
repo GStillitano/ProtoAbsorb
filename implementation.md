@@ -94,7 +94,7 @@ Split is done by `DataPools` using **stream seed** — same seed in Phase 1 and 
 ├── src/
 │   ├── model.py         # load_model(), get_embeddings(), classifier_weights()
 │   ├── bn_affine.py     # extract, inject, save, load, evaluate  ← Phase 2 primitive
-│   ├── prototypes.py    # compute() — source centroids μ_c^(0) from θ_0 on D_csID
+│   ├── centroids.py     # compute() — source centroids μ_c^(0) from θ_0 on D_csID
 │   ├── data/
 │   │   ├── cifar10c.py  # load_cifar10c_data()
 │   │   ├── svhnc.py     # load_svhn_c()
