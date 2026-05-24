@@ -17,10 +17,10 @@ Load any checkpoint, evaluate on fixed diagnostic set $\mathcal{D}$, compute met
 Stream  B_1 … B_T                    Diagnostic set D (fixed, held-out)
         │                                        │
   ┌─────▼──────────────┐                         │
-  │  one step/batch     │                         │
+  │  one step/batch    │                         │
   │  save θ_t          │                         │
   └─────┬──────────────┘                         │
-        │ checkpoints/{method}/{stream_id}/       │
+        │ checkpoints/{method}/{stream_id}/      │
   ┌─────▼──────────────────────────────────────┐ │
   │  for t in 0..T:                            │ │
   │    bn_affine.evaluate(model, θ_t, D)       │─┘
