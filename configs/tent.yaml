@@ -1,0 +1,2 @@
+optimizer: adam
+lr:        1.0e-3

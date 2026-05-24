@@ -1,1 +1,1 @@
-# GOSTTA: GEOMETRIC OPEN SET TEST TIME ADAPTION
+# GOSTTA: Geometry in Open-Set Test-Time Adaptation

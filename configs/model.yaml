@@ -1,0 +1,4 @@
+robustbench_name:    Hendrycks2020AugMix
+robustbench_dataset: cifar10
+robustbench_threat:  corruptions
+csid_dataset:        cifar10c

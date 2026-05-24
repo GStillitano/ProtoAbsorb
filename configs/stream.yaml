@@ -1,0 +1,7 @@
+corruption:   gaussian_noise
+severity:     5
+alpha:        0.5
+N:            200
+T:            100
+csood_source: svhn_c   # svhn_c | rome32
+seed:         0
