@@ -4,7 +4,7 @@ Pure checkpoint analysis — no forward pass, no data loading.
 Outputs results.json. Use scripts/plot.py --exp 3 to visualise.
 
 Usage:
-    uv run python scripts/exp3_layerwise.py --stream tent/gaussian_noise_svhn_c_0.50_seed0
+    uv run python scripts/exp3_layerwise.py --stream tent/gaussian_noise_svhn_c_open_seed0
 """
 import argparse
 import json

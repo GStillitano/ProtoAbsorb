@@ -3,14 +3,14 @@
 Reads from results/, writes figures to figures/.
 
 Usage:
-    # Exp 1 — overlay multiple streams (must share same corruption/alpha/seed)
+    # Exp 1 — overlay multiple streams (must share same corruption/open_set/seed)
     uv run python scripts/plot.py --exp 1 \
-        --streams tent/gaussian_noise_svhn_c_0.50_seed0 \
-                  bn_adapt/gaussian_noise_svhn_c_0.50_seed0
+        --streams tent/gaussian_noise_svhn_c_open_seed0 \
+                  bn_adapt/gaussian_noise_svhn_c_open_seed0
 
     # Exp 2 or 3 — single stream
-    uv run python scripts/plot.py --exp 2 --streams tent/gaussian_noise_svhn_c_0.50_seed0
-    uv run python scripts/plot.py --exp 3 --streams tent/gaussian_noise_svhn_c_0.50_seed0
+    uv run python scripts/plot.py --exp 2 --streams tent/gaussian_noise_svhn_c_open_seed0
+    uv run python scripts/plot.py --exp 3 --streams tent/gaussian_noise_svhn_c_open_seed0
 """
 import argparse
 import json
