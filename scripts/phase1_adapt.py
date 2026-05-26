@@ -15,8 +15,15 @@ from src.data.stream import build_stream
 from src.tta import tent
 
 
-def ckpt_dir(method: str, corruption: str, csood_source: str, alpha: float, seed: int) -> Path:
-    return Path("checkpoints") / method / f"{corruption}_{csood_source}_{alpha:.2f}_seed{seed}"
+def ckpt_dir(method: str, corruption: str, csood_source: str, open_set: bool, seed: int) -> Path:
+    tag = "open" if open_set else "closed"
+    return Path("checkpoints") / method / f"{corruption}_{csood_source}_{tag}_seed{seed}"
+
+
+def _parse_bool(v: str | None) -> bool | None:
+    if v is None:
+        return None
+    return v.lower() in ("true", "1", "yes")
 
 
 def main():
@@ -24,7 +31,8 @@ def main():
     parser.add_argument("--method",       required=True, choices=["tent", "bn_adapt"])
     parser.add_argument("--corruption",   default=None)
     parser.add_argument("--severity",     type=int,   default=None)
-    parser.add_argument("--alpha",        type=float, default=None)
+    parser.add_argument("--open_set",     type=str,   default=None,
+                        help="true/false — open-set (balanced ID/OOD) or closed-set (ID only)")
     parser.add_argument("--csood_source", default=None)
     parser.add_argument("--N",            type=int,   default=None)
     parser.add_argument("--T",            type=int,   default=None)
@@ -40,8 +48,8 @@ def main():
 
     corruption   = args.corruption   or stream_cfg["corruption"]
     severity     = args.severity     or stream_cfg["severity"]
-    alpha        = args.alpha        if args.alpha is not None else stream_cfg["alpha"]
-    csood_source = args.csood_source or stream_cfg["csood_source"].split()[0]  # strip comment
+    open_set     = _parse_bool(args.open_set) if args.open_set is not None else stream_cfg["open_set"]
+    csood_source = args.csood_source or stream_cfg["csood_source"].split()[0]
     N            = args.N            or stream_cfg["N"]
     T            = args.T            or stream_cfg["T"]
     seed         = args.seed         if args.seed is not None else stream_cfg["seed"]
@@ -71,13 +79,13 @@ def main():
         x_csid=x_csid, y_csid=y_csid, x_csood=x_csood,
         adapt_csid_indices=pools.csid_adapt,
         adapt_csood_indices=pools.csood_adapt,
-        N=N, T=T, alpha=alpha, seed=seed,
+        N=N, T=T, open_set=open_set, seed=seed,
     )
 
     # ── Load and configure model ───────────────────────────────────────────────
     model = load_model(data_dir=args.data_dir).to(device)
 
-    out_dir = ckpt_dir(args.method, corruption, csood_source, alpha, seed)
+    out_dir = ckpt_dir(args.method, corruption, csood_source, open_set, seed)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     torch.save(model.state_dict(), out_dir / "base_model.pt")
@@ -105,7 +113,7 @@ def main():
     # ── Write meta.json ───────────────────────────────────────────────────────
     meta = {
         "method": args.method, "corruption": corruption, "severity": severity,
-        "alpha": alpha, "N": N, "T": T, "csood_source": csood_source, "seed": seed,
+        "open_set": open_set, "N": N, "T": T, "csood_source": csood_source, "seed": seed,
         "batches": stream.to_meta_list(),
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))

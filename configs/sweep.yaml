@@ -14,6 +14,6 @@ corruption:
   - elastic_transform
   - pixelate
   - jpeg_compression
-alpha:        [0.0, 0.1, 0.25, 0.5, 0.75]
+open_set:     [true, false]
 csood_source: [svhn_c, rome32]
 seed:         [0, 1, 2]

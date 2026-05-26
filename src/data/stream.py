@@ -19,7 +19,6 @@ class AdaptationStream:
     x_csood: torch.Tensor
 
     def __iter__(self) -> Iterator[tuple[int, torch.Tensor]]:
-        """Yield (t, x_batch) for each batch. Labels not needed during TTA."""
         for meta in self.batches:
             x_id  = self.x_csid[meta.csid_indices]
             x_ood = self.x_csood[meta.csood_indices]
@@ -32,6 +31,15 @@ class AdaptationStream:
         ]
 
 
+def _sequential_samples(rng: np.random.Generator, pool: list[int], total: int) -> list[int]:
+    """Draw `total` items from pool in order; reshuffle when exhausted (no within-epoch repeats)."""
+    result: list[int] = []
+    arr = np.array(pool)
+    while len(result) < total:
+        result.extend(rng.permutation(arr).tolist())
+    return result[:total]
+
+
 def build_stream(
     x_csid: torch.Tensor,
     y_csid: torch.Tensor,
@@ -40,19 +48,28 @@ def build_stream(
     adapt_csood_indices: list[int],
     N: int,
     T: int,
-    alpha: float,
+    open_set: bool,
     seed: int = 0,
 ) -> AdaptationStream:
-    """Build a frozen adaptation stream of T batches, each size N with OOD proportion alpha."""
-    n_ood = round(alpha * N)
-    n_id = N - n_ood
+    """Build a frozen adaptation stream of T batches, each size N.
+
+    open_set=True:  n_ood = N//2, n_id = N//2 per batch (balanced).
+    open_set=False: n_ood = 0,    n_id = N   per batch (closed-set).
+
+    Examples never repeat within a full pass through the adapt pool.
+    With T=80, N=200, open_set=True: 80*100=8000 draws = pool size exactly (zero repeats).
+    """
+    n_ood = N // 2 if open_set else 0
+    n_id  = N - n_ood
 
     rng = np.random.default_rng(seed)
-    batches = []
+    csid_samples  = _sequential_samples(rng, adapt_csid_indices,  T * n_id)
+    csood_samples = _sequential_samples(rng, adapt_csood_indices, T * n_ood) if n_ood > 0 else []
 
+    batches = []
     for t in range(1, T + 1):
-        csid_batch = rng.choice(adapt_csid_indices, size=n_id, replace=False).tolist()
-        csood_batch = rng.choice(adapt_csood_indices, size=n_ood, replace=False).tolist() if n_ood > 0 else []
+        csid_batch  = csid_samples[(t - 1) * n_id  : t * n_id]
+        csood_batch = csood_samples[(t - 1) * n_ood : t * n_ood] if n_ood > 0 else []
         batches.append(BatchMeta(t=t, csid_indices=csid_batch, csood_indices=csood_batch))
 
     return AdaptationStream(

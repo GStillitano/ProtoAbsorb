@@ -3,7 +3,7 @@
 Outputs results.json per stream. Use scripts/plot.py --exp 1 to visualise.
 
 Usage:
-    uv run python scripts/exp1_auroc.py --streams tent/gaussian_noise_svhn_c_0.50_seed0 bn_adapt/gaussian_noise_svhn_c_0.50_seed0
+    uv run python scripts/exp1_auroc.py --streams tent/gaussian_noise_svhn_c_open_seed0 bn_adapt/gaussian_noise_svhn_c_open_seed0
 """
 import argparse
 import json
@@ -13,7 +13,7 @@ import torch
 import yaml
 
 from src.model import load_model
-from src.bn_affine import evaluate
+from src.bn_affine import evaluate_diagnostic_stream
 from src.data.cifar10c import load_cifar10c_data
 from src.data.svhnc import load_svhn_c
 from src.data.pools import DataPools
@@ -44,21 +44,28 @@ def load_diagnostic(meta: dict, data_dir: str) -> tuple[torch.Tensor, torch.Tens
 
 def run_stream(stream_id: str, model, data_dir: str, device: str) -> dict:
     ckpt_dir = Path("checkpoints") / stream_id
-    meta = json.loads((ckpt_dir / "meta.json").read_text())
-    T = meta["T"]
+    meta     = json.loads((ckpt_dir / "meta.json").read_text())
+    T        = meta["T"]
+    open_set = meta["open_set"]
+
     x_id, y_id, x_ood = load_diagnostic(meta, data_dir)
+    x_ood_eval = x_ood if open_set else torch.empty(0)
 
     auroc_list, acc_list = [], []
     for t in range(T + 1):
         ckpt = ckpt_dir / f"theta_{t:03d}.pt"
-        feat_id,  logits_id  = evaluate(model, ckpt, x_id,  device)
-        feat_ood, logits_ood = evaluate(model, ckpt, x_ood, device)
-        scores_id  = -energy_score(logits_id)
-        scores_ood = -energy_score(logits_ood)
-        auroc_list.append(auroc(scores_id, scores_ood))
+        feat_id, logits_id, feat_ood, logits_ood = evaluate_diagnostic_stream(
+            model, ckpt, x_id, x_ood_eval, device,
+        )
         acc_list.append((logits_id.argmax(dim=-1) == y_id).float().mean().item())
+        if open_set:
+            scores_id  = -energy_score(logits_id)
+            scores_ood = -energy_score(logits_ood)
+            auroc_list.append(auroc(scores_id, scores_ood))
+        else:
+            auroc_list.append(None)
 
-    return {"t": list(range(T + 1)), "auroc": auroc_list, "acc_csid": acc_list}
+    return {"t": list(range(T + 1)), "auroc": auroc_list, "acc_csid": acc_list, "open_set": open_set}
 
 
 def main():
