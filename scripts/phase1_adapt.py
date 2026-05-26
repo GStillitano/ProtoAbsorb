@@ -13,6 +13,7 @@ from src.data.svhnc import load_svhn_c
 from src.data.pools import DataPools
 from src.data.stream import build_stream
 from src.tta import tent
+from src.device import get_device
 
 
 def ckpt_dir(method: str, corruption: str, csood_source: str, open_set: bool, seed: int) -> Path:
@@ -54,7 +55,7 @@ def main():
     T            = args.T            or stream_cfg["T"]
     seed         = args.seed         if args.seed is not None else stream_cfg["seed"]
     lr           = args.lr           or tent_cfg["lr"]
-    device       = args.device       or ("cuda" if torch.cuda.is_available() else "cpu")
+    device       = args.device       or get_device()
 
     # ── Load data ─────────────────────────────────────────────────────────────
     x_csid, y_csid = load_cifar10c_data(corruption, severity, data_dir=args.data_dir)

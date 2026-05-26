@@ -19,6 +19,7 @@ from src.data.cifar10 import load_cifar10_data
 from src.data.svhnc import load_svhn_c
 from src.data.pools import DataPools
 from src.centroids import compute as compute_centroids
+from src.device import get_device
 from src.metrics.geometry import (
     feature_norms, cosine_to_weights, max_cosine_to_weights, centroid_distances,
 )
@@ -52,7 +53,7 @@ def main():
     parser.add_argument("--device",   default=None)
     args = parser.parse_args()
 
-    device   = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    device   = args.device or get_device()
     ckpt_dir = Path("checkpoints") / args.stream
     meta     = json.loads((ckpt_dir / "meta.json").read_text())
     T        = meta["T"]

@@ -18,6 +18,7 @@ import yaml
 from src.model import load_model
 from src.data.cifar10c import load_cifar10c_data, CORRUPTIONS
 from src.tta import tent
+from src.device import get_device
 
 
 def run_one_corruption(corruption, severity, data_dir, device, lr, N):
@@ -54,7 +55,7 @@ def main():
 
     tent_cfg = yaml.safe_load(Path("configs/tent.yaml").read_text())
     lr     = args.lr or tent_cfg["lr"]
-    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    device = args.device or get_device()
 
     corruptions = args.corruptions or CORRUPTIONS
 

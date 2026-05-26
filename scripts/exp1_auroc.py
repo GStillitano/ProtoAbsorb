@@ -19,6 +19,7 @@ from src.data.svhnc import load_svhn_c
 from src.data.pools import DataPools
 from src.metrics.ood_scores import energy_score
 from src.metrics.ood_metrics import auroc
+from src.device import get_device
 
 
 def load_diagnostic(meta: dict, data_dir: str) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -75,7 +76,7 @@ def main():
     parser.add_argument("--device",   default=None)
     args = parser.parse_args()
 
-    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    device = args.device or get_device()
     model  = load_model(data_dir=args.data_dir).to(device)
 
     for sid in args.streams:
