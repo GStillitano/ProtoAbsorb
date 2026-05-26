@@ -317,32 +317,32 @@ seed:         [0, 1, 2]
 
 ```bash
 # ── TENT reproduction (closed-set, matches published protocol) ───────────────
-uv run python scripts/reproduce_tent.py
+uv run scripts/reproduce_tent.py
 
 # ── Single stream (use stream.yaml defaults or override via CLI) ─────────────
-uv run python scripts/phase1_adapt.py --method tent
-uv run python scripts/phase1_adapt.py --method bn_adapt
+uv run scripts/phase1_adapt.py --method tent
+uv run scripts/phase1_adapt.py --method bn_adapt
 
 # ── Compute metrics (output: results/{stream}/expN/results.json) ─────────────
-uv run python scripts/exp1_auroc.py \
+uv run scripts/exp1_auroc.py \
   --streams tent/gaussian_noise_svhn_c_open_seed0 \
             bn_adapt/gaussian_noise_svhn_c_open_seed0
 
-uv run python scripts/exp2_geometry.py --stream tent/gaussian_noise_svhn_c_open_seed0
-uv run python scripts/exp3_layerwise.py --stream tent/gaussian_noise_svhn_c_open_seed0
+uv run scripts/exp2_geometry.py --stream tent/gaussian_noise_svhn_c_open_seed0
+uv run scripts/exp3_layerwise.py --stream tent/gaussian_noise_svhn_c_open_seed0
 
 # ── Render figures (output: figures/{stream}/expN_*.png) ─────────────────────
-uv run python scripts/plot.py --exp 1 \
+uv run scripts/plot.py --exp 1 \
   --streams tent/gaussian_noise_svhn_c_open_seed0 \
             bn_adapt/gaussian_noise_svhn_c_open_seed0
 
-uv run python scripts/plot.py --exp 2 --streams tent/gaussian_noise_svhn_c_open_seed0
-uv run python scripts/plot.py --exp 3 --streams tent/gaussian_noise_svhn_c_open_seed0
+uv run scripts/plot.py --exp 2 --streams tent/gaussian_noise_svhn_c_open_seed0
+uv run scripts/plot.py --exp 3 --streams tent/gaussian_noise_svhn_c_open_seed0
 
 # ── Inspect results → decide Path A or B ────────────────────────────────────
 
 # ── Full sweep (after decision) ──────────────────────────────────────────────
-uv run python scripts/sweep.py --method tent
+uv run scripts/sweep.py --method tent
 ```
 
 ---
