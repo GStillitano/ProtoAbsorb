@@ -1,28 +1,31 @@
-"""Source class centroids μ_c^(0): compute from θ_0 on D_csID and cache."""
+"""Source class centroids μ_c^(0): computed from clean CIFAR-10 with original model weights."""
 import torch
 import torch.nn as nn
 from pathlib import Path
 
-from src.bn_affine import evaluate
+from src.model import get_embeddings
 
 
 def compute(
     model: nn.Module,
-    ckpt0_path: Path,
-    x_csid: torch.Tensor,
-    y_csid: torch.Tensor,
+    x_clean: torch.Tensor,
+    y_clean: torch.Tensor,
     device: str = "cpu",
     cache_path: Path | None = None,
 ) -> dict[int, torch.Tensor]:
-    """Compute {class_id: centroid [d]} from θ_0 on D_csID. Loads from cache if available."""
+    """Compute {class_id: centroid [d]} from original model weights on clean CIFAR-10.
+
+    Caller must pass model in original (pre-adaptation) state — no checkpoint injection.
+    Loads from cache if available.
+    """
     if cache_path is not None and Path(cache_path).exists():
         return torch.load(cache_path, map_location="cpu", weights_only=True)
 
-    features, _ = evaluate(model, ckpt0_path, x_csid, device)
+    features, _ = get_embeddings(model, x_clean, device)
 
     centroids = {
-        int(c): features[y_csid == c].mean(dim=0)
-        for c in y_csid.unique().tolist()
+        int(c): features[y_clean == c].mean(dim=0)
+        for c in y_clean.unique().tolist()
     }
 
     if cache_path is not None:
