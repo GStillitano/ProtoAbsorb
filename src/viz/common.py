@@ -1,5 +1,6 @@
-"""Shared matplotlib style for all experiment plots."""
+"""Shared seaborn/matplotlib style for all experiment plots."""
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 METHOD_COLORS = {
     "tent":     "#E65100",
@@ -16,11 +17,16 @@ POP_COLORS = {
 
 
 def apply_style() -> None:
-    plt.rcParams.update({
-        "figure.dpi":        150,
-        "axes.spines.top":   False,
-        "axes.spines.right": False,
-        "axes.grid":         True,
-        "grid.alpha":        0.3,
-        "font.size":         10,
-    })
+    sns.set_theme(
+        style="ticks",
+        context="notebook",
+        font_scale=1.05,
+        rc={
+            "figure.dpi":      150,
+            "axes.grid":       True,
+            "grid.alpha":      0.25,
+            "grid.linewidth":  0.6,
+            "lines.linewidth": 2.0,
+            "legend.frameon":  False,
+        },
+    )

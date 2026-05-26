@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from src.viz.common import apply_style, METHOD_COLORS
 
@@ -20,22 +21,32 @@ def plot(stream_results: dict[str, dict], out_path: Path) -> None:
     for sid, r in stream_results.items():
         method = sid.split("/")[0]
         color  = METHOD_COLORS.get(method)
-        ax1.plot(r["t"], r["auroc"],    label=method, color=color)
-        ax2.plot(r["t"], r["acc_csid"], label=method, color=color)
+        t      = r["t"]
 
-    ax1.set_xlabel("Step t")
+        auroc_vals = r["auroc"]
+        if any(v is not None for v in auroc_vals):
+            t_valid = [ti for ti, v in zip(t, auroc_vals) if v is not None]
+            a_valid = [v  for v in auroc_vals if v is not None]
+            sns.lineplot(x=t_valid, y=a_valid, label=method, color=color,
+                         marker="o", markersize=3, ax=ax1)
+
+        sns.lineplot(x=t, y=r["acc_csid"], label=method, color=color,
+                     marker="o", markersize=3, ax=ax2)
+
+    ax1.set_xlabel("Step $t$")
     ax1.set_ylabel("AUROC")
     ax1.set_title("AUROC over stream")
     ax1.legend()
 
-    ax2.set_xlabel("Step t")
-    ax2.set_ylabel("Acc (csID)")
+    ax2.set_xlabel("Step $t$")
+    ax2.set_ylabel("Accuracy (csID)")
     ax2.set_title("csID accuracy over stream")
     ax2.legend()
 
+    sns.despine(fig=fig)
     fig.tight_layout()
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {out_path}")
