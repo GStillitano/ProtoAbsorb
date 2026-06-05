@@ -12,8 +12,17 @@ from src.data.cifar10c import load_cifar10c_data
 from src.data.svhnc import load_svhn_c
 from src.data.pools import DataPools
 from src.data.stream import build_stream
-from src.tta import tent
+from src.tta import tent, cassano
+from src.model import classifier_weights
 from src.device import get_device
+
+
+def build_optimizer(name: str, params, lr: float, momentum: float = 0.9):
+    if name == "adam":
+        return torch.optim.Adam(params, lr=lr)
+    if name == "sgd":
+        return torch.optim.SGD(params, lr=lr, momentum=momentum)
+    raise ValueError(f"Unknown optimizer: {name}")
 
 
 def ckpt_dir(method: str, corruption: str, csood_source: str, open_set: bool, seed: int) -> Path:
@@ -29,7 +38,7 @@ def _parse_bool(v: str | None) -> bool | None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method",       required=True, choices=["tent", "bn_adapt"])
+    parser.add_argument("--method",       required=True, choices=["tent", "bn_adapt", "cassano"])
     parser.add_argument("--corruption",   default=None)
     parser.add_argument("--severity",     type=int,   default=None)
     parser.add_argument("--open_set",     type=str,   default=None,
@@ -43,9 +52,11 @@ def main():
     parser.add_argument("--device",       default=None)
     args = parser.parse_args()
 
-    stream_cfg = yaml.safe_load(Path("configs/stream.yaml").read_text())
-    tent_cfg   = yaml.safe_load(Path("configs/tent.yaml").read_text())
-    diag_cfg   = yaml.safe_load(Path("configs/diagnostic.yaml").read_text())
+    stream_cfg   = yaml.safe_load(Path("configs/stream.yaml").read_text())
+    tent_cfg     = yaml.safe_load(Path("configs/tent.yaml").read_text())
+    cassano_cfg  = yaml.safe_load(Path("configs/cassano.yaml").read_text())
+    diag_cfg     = yaml.safe_load(Path("configs/diagnostic.yaml").read_text())
+    method_cfg   = cassano_cfg if args.method == "cassano" else tent_cfg
 
     corruption   = args.corruption   or stream_cfg["corruption"]
     severity     = args.severity     or stream_cfg["severity"]
@@ -54,7 +65,7 @@ def main():
     N            = args.N            or stream_cfg["N"]
     T            = args.T            or stream_cfg["T"]
     seed         = args.seed         if args.seed is not None else stream_cfg["seed"]
-    lr           = args.lr           or tent_cfg["lr"]
+    lr           = args.lr           or method_cfg["lr"]
     device       = args.device       or get_device()
 
     # ── Load data ─────────────────────────────────────────────────────────────
@@ -92,11 +103,31 @@ def main():
     torch.save(model.state_dict(), out_dir / "base_model.pt")
     save_ckpt(extract(model, t=0), out_dir / "theta_000.pt")
 
+    scorer = optimizer = gmm = W_cpu = None
     if args.method == "tent":
         tent.configure_model(model)
         params, _ = tent.collect_params(model)
         optimizer = torch.optim.Adam(params, lr=lr)
         tent_model = tent.Tent(model, optimizer, steps=1, episodic=False)
+
+    elif args.method == "cassano":
+        # Adapted model: BN affine trainable.
+        cassano.configure_model(model)
+        params, _ = tent.collect_params(model)
+        optimizer = build_optimizer(method_cfg["optimizer"], params, lr,
+                                    momentum=method_cfg.get("momentum", 0.9))
+        # Frozen scorer: separate model, original weights, BN batch-stat adapt, no grad.
+        scorer = load_model(data_dir=args.data_dir).to(device)
+        scorer.requires_grad_(False)
+        W_cpu  = classifier_weights(scorer).cpu()
+        gmm    = cassano.GmmScorer(
+            components   = cassano_cfg["gmm_components"],
+            accumulate   = cassano_cfg["gmm_accumulate"],
+            window       = cassano_cfg["gmm_window"],
+            warm_start   = cassano_cfg["gmm_warm_start"],
+            reg_covar    = cassano_cfg["gmm_reg_covar"],
+            id_component = cassano_cfg["id_component"],
+        )
 
     # ── Phase 1 loop ──────────────────────────────────────────────────────────
     for t, x_batch in stream:
@@ -104,6 +135,16 @@ def main():
 
         if args.method == "tent":
             tent_model(x_batch)
+        elif args.method == "cassano":
+            # LR warmup: scale base lr by ramp(t/K), t is 1-indexed.
+            f = cassano.warmup_factor(t, cassano_cfg["warmup_K"],
+                                      cassano_cfg["warmup_shape"], cassano_cfg["warmup_exp_tau"])
+            for g in optimizer.param_groups:
+                g["lr"] = lr * f
+            cassano.forward_and_adapt(
+                x_batch, model, scorer, W_cpu, gmm, optimizer,
+                l1_weight=cassano_cfg["l1_weight"], device=device,
+            )
         else:  # bn_adapt
             with torch.no_grad():
                 model(x_batch)

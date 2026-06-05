@@ -1,0 +1,39 @@
+# Cassano: maxcos-scored soft-labeled TTA.
+#
+# Two models per step:
+#   scorer  = frozen θ_0 weights + BN batch-stat adapt, NO grad  → maxcos score
+#   adapted = real model, BN affine (γ,β) updated each step      → deployed
+#
+# Per step: score batch with scorer → pool maxcos → refit 2-Gaussian GMM →
+# Bayes P_OOD(x) → loss = P_ID·entropy(logits) + P_OOD·L1(feat) on adapted model.
+
+# ── Optimizer ───────────────────────────────────────────────────────────────
+optimizer: adam            # adam | sgd
+lr:        1.0e-3          # base learning rate (post-warmup)
+momentum:  0.9             # used only when optimizer = sgd
+
+# ── Score ───────────────────────────────────────────────────────────────────
+score:     maxcos          # max cosine of feature to any frozen class weight
+
+# ── GMM (soft labeling) ──────────────────────────────────────────────────────
+gmm_components:  2         # ID vs OOD
+gmm_accumulate:  pool      # pool (all past scores) | window | batch
+gmm_window:      0         # sliding window in steps; used only when accumulate = window (0 = unused)
+gmm_warm_start:  false     # warm-start EM from previous step's params
+gmm_reg_covar:   1.0e-6    # covariance regularization (sklearn GaussianMixture)
+id_component:    high_mean # which Gaussian is ID: the higher-mean component
+
+# ── LR warmup ────────────────────────────────────────────────────────────────
+# Effective lr at step t:  lr * ramp(t/K),  capped at 1.0 for t >= K.
+warmup_K:        10        # steps to reach full lr
+warmup_shape:    linear    # linear | exp | cosine
+warmup_exp_tau:  0.3       # time-constant for exp shape: ramp = 1 - exp(-(t/K)/tau)
+
+# ── Loss ─────────────────────────────────────────────────────────────────────
+# loss = mean( P_ID * entropy(logits)  +  P_OOD * l1_weight * L1(feat) )
+id_term:        entropy    # softmax entropy minimization on ID-soft examples
+ood_term:       l1_norm    # feature L1-norm penalty on OOD-soft examples
+# Scale balance: entropy <= ln10 ~ 2.30; feature L1 ~ 28-30. l1_weight ~ 1/30 ~ 0.03
+# puts the two terms on the same scale. Raise for stronger OOD norm suppression.
+l1_weight:      0.03       # scale on the OOD L1 term relative to entropy term
+detach_scorer:  true       # scorer forward never builds graph (no grad)
