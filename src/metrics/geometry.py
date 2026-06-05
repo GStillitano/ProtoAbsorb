@@ -8,6 +8,11 @@ def feature_norms(features: torch.Tensor) -> torch.Tensor:
     return features.norm(dim=-1)
 
 
+def feature_norms_l1(features: torch.Tensor) -> torch.Tensor:
+    """L1 norm per sample. Shape: [N]."""
+    return features.abs().sum(dim=-1)
+
+
 def cosine_to_weights(features: torch.Tensor, weight_matrix: torch.Tensor, class_indices: torch.Tensor) -> torch.Tensor:
     """Cosine similarity of each feature to its designated class weight vector.
 

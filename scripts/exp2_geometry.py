@@ -21,7 +21,7 @@ from src.data.pools import DataPools
 from src.centroids import compute as compute_centroids
 from src.device import get_device
 from src.metrics.geometry import (
-    feature_norms, cosine_to_weights, max_cosine_to_weights, centroid_distances,
+    feature_norms, feature_norms_l1, cosine_to_weights, max_cosine_to_weights, centroid_distances,
 )
 
 
@@ -76,11 +76,34 @@ def main():
     x_ood_eval = x_ood if open_set else torch.empty(0)
     W_cpu = W.cpu()
 
+    def _qs(tensor, open_set_flag=True):
+        """Return (mean, q25, q75) as floats, or (None, None, None) if flag is False."""
+        if not open_set_flag or tensor is None:
+            return None, None, None
+        return tensor.mean().item(), tensor.quantile(0.25).item(), tensor.quantile(0.75).item()
+
     records = {
         "open_set": open_set,
-        "t": [], "norm_id": [], "norm_ood": [], "delta_norm": [],
-        "cos_id": [], "cos_ood": [], "maxcos_id": [], "maxcos_ood": [],
-        "dist_id": [], "dist_ood": [], "conf_ood": [], "change_ood": [],
+        "t": [],
+        # L2 norm
+        "norm_id": [], "norm_id_q25": [], "norm_id_q75": [],
+        "norm_ood": [], "norm_ood_q25": [], "norm_ood_q75": [],
+        "delta_norm": [],
+        # L1 norm
+        "norm_l1_id": [], "norm_l1_id_q25": [], "norm_l1_id_q75": [],
+        "norm_l1_ood": [], "norm_l1_ood_q25": [], "norm_l1_ood_q75": [],
+        "delta_norm_l1": [],
+        # Cosine alignment
+        "cos_id": [], "cos_id_q25": [], "cos_id_q75": [],
+        "cos_ood": [], "cos_ood_q25": [], "cos_ood_q75": [],
+        "maxcos_id": [], "maxcos_id_q25": [], "maxcos_id_q75": [],
+        "maxcos_ood": [], "maxcos_ood_q25": [], "maxcos_ood_q75": [],
+        # Centroid distance
+        "dist_id": [], "dist_id_q25": [], "dist_id_q75": [],
+        "dist_ood": [], "dist_ood_q25": [], "dist_ood_q75": [],
+        # Confidence
+        "conf_ood": [], "conf_ood_q25": [], "conf_ood_q75": [],
+        "change_ood": [],
     }
 
     pred0_id = pred0_ood = prev_pred_ood = None
@@ -109,26 +132,60 @@ def main():
             prev_pred_ood = cur_pred_ood
 
         records["t"].append(t)
-        records["norm_id"].append(feature_norms(feat_id).mean().item())
-        records["norm_ood"].append(feature_norms(feat_ood).mean().item() if open_set else None)
+
+        # L2 norms
+        l2_id  = feature_norms(feat_id)
+        l2_ood = feature_norms(feat_ood) if open_set else None
+        records["norm_id"].append(l2_id.mean().item())
+        records["norm_id_q25"].append(l2_id.quantile(0.25).item())
+        records["norm_id_q75"].append(l2_id.quantile(0.75).item())
+        records["norm_ood"].append(l2_ood.mean().item() if open_set else None)
+        records["norm_ood_q25"].append(l2_ood.quantile(0.25).item() if open_set else None)
+        records["norm_ood_q75"].append(l2_ood.quantile(0.75).item() if open_set else None)
         records["delta_norm"].append(
             records["norm_id"][-1] - records["norm_ood"][-1] if open_set else None
         )
-        records["cos_id"].append(cosine_to_weights(feat_id, W_cpu, pred0_id).mean().item())
-        records["cos_ood"].append(
-            cosine_to_weights(feat_ood, W_cpu, pred0_ood).mean().item() if open_set else None
+
+        # L1 norms
+        l1_id  = feature_norms_l1(feat_id)
+        l1_ood = feature_norms_l1(feat_ood) if open_set else None
+        records["norm_l1_id"].append(l1_id.mean().item())
+        records["norm_l1_id_q25"].append(l1_id.quantile(0.25).item())
+        records["norm_l1_id_q75"].append(l1_id.quantile(0.75).item())
+        records["norm_l1_ood"].append(l1_ood.mean().item() if open_set else None)
+        records["norm_l1_ood_q25"].append(l1_ood.quantile(0.25).item() if open_set else None)
+        records["norm_l1_ood_q75"].append(l1_ood.quantile(0.75).item() if open_set else None)
+        records["delta_norm_l1"].append(
+            records["norm_l1_id"][-1] - records["norm_l1_ood"][-1] if open_set else None
         )
-        records["maxcos_id"].append(max_cosine_to_weights(feat_id,  W_cpu).mean().item())
-        records["maxcos_ood"].append(
-            max_cosine_to_weights(feat_ood, W_cpu).mean().item() if open_set else None
-        )
-        records["dist_id"].append(centroid_distances(feat_id, centroids).mean().item())
-        records["dist_ood"].append(
-            centroid_distances(feat_ood, centroids).mean().item() if open_set else None
-        )
-        records["conf_ood"].append(
-            torch.softmax(logits_ood, dim=-1).max(dim=-1).values.mean().item() if open_set else None
-        )
+        cos_id_t   = cosine_to_weights(feat_id, W_cpu, pred0_id)
+        cos_ood_t  = cosine_to_weights(feat_ood, W_cpu, pred0_ood) if open_set else None
+        m, q25, q75 = cos_id_t.mean().item(), cos_id_t.quantile(0.25).item(), cos_id_t.quantile(0.75).item()
+        records["cos_id"].append(m); records["cos_id_q25"].append(q25); records["cos_id_q75"].append(q75)
+        m, q25, q75 = _qs(cos_ood_t)
+        records["cos_ood"].append(m); records["cos_ood_q25"].append(q25); records["cos_ood_q75"].append(q75)
+
+        maxcos_id_t  = max_cosine_to_weights(feat_id, W_cpu)
+        maxcos_ood_t = max_cosine_to_weights(feat_ood, W_cpu) if open_set else None
+        m, q25, q75 = maxcos_id_t.mean().item(), maxcos_id_t.quantile(0.25).item(), maxcos_id_t.quantile(0.75).item()
+        records["maxcos_id"].append(m); records["maxcos_id_q25"].append(q25); records["maxcos_id_q75"].append(q75)
+        m, q25, q75 = _qs(maxcos_ood_t)
+        records["maxcos_ood"].append(m); records["maxcos_ood_q25"].append(q25); records["maxcos_ood_q75"].append(q75)
+
+        dist_id_t  = centroid_distances(feat_id, centroids)
+        dist_ood_t = centroid_distances(feat_ood, centroids) if open_set else None
+        m, q25, q75 = dist_id_t.mean().item(), dist_id_t.quantile(0.25).item(), dist_id_t.quantile(0.75).item()
+        records["dist_id"].append(m); records["dist_id_q25"].append(q25); records["dist_id_q75"].append(q75)
+        m, q25, q75 = _qs(dist_ood_t)
+        records["dist_ood"].append(m); records["dist_ood_q25"].append(q25); records["dist_ood_q75"].append(q75)
+
+        if open_set:
+            conf_t = torch.softmax(logits_ood, dim=-1).max(dim=-1).values
+            m, q25, q75 = conf_t.mean().item(), conf_t.quantile(0.25).item(), conf_t.quantile(0.75).item()
+        else:
+            m, q25, q75 = None, None, None
+        records["conf_ood"].append(m); records["conf_ood_q25"].append(q25); records["conf_ood_q75"].append(q75)
+
         records["change_ood"].append(change_ood)
 
     (out_dir / "results.json").write_text(json.dumps(records, indent=2))
