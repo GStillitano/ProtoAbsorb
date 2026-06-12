@@ -1,0 +1,71 @@
+New structure:
+Since it's not a paper but a report, the new structure should be:
+
+1. Abstract
+
+* **The Problem:** Test-Time Adaptation (TTA) is crucial, but its success hinges entirely on accurately distinguishing between closed-set and open-set data.
+* **Current State:** Existing methods rely heavily on high-confidence detection and hard thresholding; they fail to leverage the $L_1$ norm directly.
+* **Our Approach (Cassano):** * Introduces a **soft, hyperplane alignment score** operating directly on the $L_1$ norm.
+* Preserves a strong Out-of-Distribution (OOD) signal that is typically lost under covariate shift.
+* Validated empirically on **CIFAR10-C**.
+
+---
+
+2. Introduction
+
+* **Context:** Expand on the core narrative from the Abstract.
+
+Core Contributions:
+* **Protocol:** Introduction of time tracking and a new evaluation protocol.
+* **Analysis:** A distinct geometric characterization explaining why closed-set TTA methods fail in open-set scenarios.
+* **Methodology:** Proposal of a novel open-set TTA framework (Cassano).
+
+---
+
+3. Related Work
+
+* **Test-Time Adaptation:** TENT, UNIENT.
+* **OOD Detection:** Energy-based OOD detection methods.
+* **Geometric Features:** Feature Norm behaviors across In-Distribution (ID) vs. Out-of-Distribution (OOD) data.
+
+---
+
+4.Introduction to TTA in closed and open set: general idea and goals of TTA methods, entropy-based methods(TENT),transition and failure of TENT in open-set settings(degradation of OOD detection)
+
+---
+
+5.Understanding the failure of entropy-based methods(TENT)
+5.1 Background on last-layer embeddings, softmax regression, logits, norms, and alignment vectors.
+5.2 OOD detection recap(entropy, feature norms[cite "Understanding the Feature Norm for Out-of-Distribution Detection" paper])
+5.3 Effects of TENT considering 5.1 and 5.2(possible effects of entropy minimisation on embeddings and OOD detection)
+Plot AUROC vs csID_accuracy
+
+---
+
+6.Experiment on the failure of TENT
+6.1 Time evaluation protocol(look into implementation.md)
+6.2 Metrics 
+6.3 Metrics results(with plots and no AUROC vs csID_accuracy): alignment vs norms(explain that the norms are not a strong signal in our setting)
+
+---
+
+7.Our proposal
+7.1 the general framework view of open-set TTA methods( score ---> pi(OOD|x) ---> labelling(soft/hard))
+7.2 formal introduction to the method, explicitly motivating every architectural choice(general framework defined in 7.1) based on the geometric failure analysis identified above.
+7.3 Results(CASSANO vs TENT): AUROC vs csID_accuracy, geometric metrics
+
+---
+
+8.Conclusions & discussion
+
+
+General guidelines:
+The report should not paper-oriented and should be minimal, formal, not verbose, elegant and no AI expression.
+Be also general in the notation, and consistent across the report.
+
+What to change or fine-tune:
+Abstract:
+-our approach ---> our contribution: more consistent with the core contributions in the 
+introduction
+
+

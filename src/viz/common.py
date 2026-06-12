@@ -5,9 +5,7 @@ import seaborn as sns
 METHOD_COLORS = {
     "tent":     "#E65100",
     "bn_adapt": "#1565C0",
-    "unient":   "#6A1B9A",
-    "rosetta":  "#2E7D32",
-    "fix":      "#F9A825",
+    "cassano":  "#2E7D32",
 }
 
 POP_COLORS = {

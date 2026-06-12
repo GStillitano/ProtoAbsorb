@@ -43,7 +43,7 @@ model = load_model()  # BN train mode, batch stats, no running stats
 
 **csOOD:** two sources, run separately:
 - `svhn_c` — SVHN test set + same 15 corruptions. Run first.
-- `rome32` — research group images (classic Rome) resized to 32×32 + same corruptions. Stub until data available (`data/rome32/raw/`).
+- `rome32` — research group images (classic Rome) resized to 32×32 + same corruptions. Loader is capped to the SVHN test-set size so extra images are never touched (`data/rome32/raw/`).
 
 ---
 
@@ -95,30 +95,32 @@ Split is done by `DataPools` using **stream seed** — same seed in Phase 1 and 
 │   ├── bn_affine.py     # extract, inject, save, load, evaluate_diagnostic_stream  ← Phase 2 primitive
 │   ├── centroids.py     # compute() — source centroids μ_c^(0) from original weights on clean CIFAR-10
 │   ├── data/
-│   │   ├── cifar10.py   # load_cifar10_data() — clean test set, [0,1] CHW, no normalization
-│   │   ├── cifar10c.py  # load_cifar10c_data()
-│   │   ├── svhnc.py     # load_svhn_c()
-│   │   ├── rome32.py    # load_rome32_c()  [stub]
-│   │   ├── pools.py     # DataPools — disjoint adapt/diagnostic split
-│   │   └── stream.py    # build_stream() — frozen adaptation stream, sequential non-repeating
+│   │   ├── cifar10.py    # load_cifar10_data() — clean test set, [0,1] CHW, no normalization
+│   │   ├── cifar10c.py   # load_cifar10c_data()
+│   │   ├── svhnc.py      # load_svhn_c()
+│   │   ├── rome32.py     # load_rome32_c()  [stub]
+│   │   ├── pools.py      # DataPools — disjoint adapt/diagnostic split
+│   │   ├── diagnostic.py # load_diagnostic() — shared held-out D loader for Phase 2 scripts
+│   │   └── stream.py     # build_stream() — frozen adaptation stream, sequential non-repeating
 │   ├── tta/
-│   │   └── tent.py      # official TENT (github.com/DequanWang/tent), unchanged
+│   │   ├── tent.py      # official TENT (github.com/DequanWang/tent), unchanged
+│   │   └── cassano.py   # Cassano: GmmScorer, cassano_loss, warmup, forward_and_adapt
 │   ├── metrics/
 │   │   ├── ood_scores.py   # energy_score, max_logit_score, max_softmax_score
 │   │   ├── ood_metrics.py  # auroc, fpr_at_tpr, oscr, h_score
 │   │   └── geometry.py     # feature_norms, cosine_to_weights, centroid_distances, …
 │   └── viz/
-│       ├── common.py    # shared style: colors, rcParams
-│       ├── exp1.py      # plot AUROC + Acc trajectory (overlay multiple streams)
-│       ├── exp2.py      # plot norm/cosine/distance/confidence panels
-│       └── exp3.py      # plot BN drift heatmaps and layer profile
+│       ├── common.py      # shared style: colors, rcParams
+│       ├── exp1.py        # plot AUROC + Acc trajectory (overlay multiple streams)
+│       ├── exp2.py        # plot norm/cosine/distance/confidence panels
+│       └── maxcos_dist.py # plot maxcos score distribution (csID vs csOOD)
 │
 ├── scripts/
 │   ├── phase1_adapt.py     # Phase 1: run method on stream, save checkpoints
 │   ├── reproduce_tent.py   # closed-set TENT reproduction (matches published protocol)
 │   ├── exp1_auroc.py       # compute AUROC + Acc → results.json
 │   ├── exp2_geometry.py    # compute geometry metrics → results.json
-│   ├── exp3_layerwise.py   # compute BN drift → results.json  (no forward pass)
+│   ├── maxcos_dist.py      # maxcos score distribution at θ_t (Cassano's GMM input)
 │   ├── plot.py             # render figures from results JSON → figures/
 │   └── sweep.py            # run phase1_adapt over full sweep.yaml grid
 │
@@ -237,9 +239,9 @@ Partition fixed by seed — identical for every θ_t.
 | Separate ID forward + OOD forward | Each population gets its own BN stats (OOD normalised by OOD-only mean/var). Never happens in deployment. Artificially stabilises OOD features, masking norm-gap collapse — exactly what we are trying to measure. |
 | Evaluate on adaptation batch | Conflates BN stat variance with affine drift. Batch varies across t; metric changes could come from sampling noise, not θ drift. |
 
-### 5.3 Path A method comparison
+### 5.3 Method comparison
 
-If a fix is identified, TENT, BN Adapt, UniEnt, ROSETTA, and the proposed fix are compared using the **same pre-update convention** as the TENT reproduction: evaluate each method on the batch used for adaptation, with the weights in effect before that batch's update. This aligns with published baselines and avoids favoring methods that happen to show post-update improvement on $\mathcal{D}$.
+TENT, BN Adapt, and Cassano all produce the same checkpoint format and are compared under the **identical Phase 2 protocol** (§5.2): each $\theta_t$ evaluated on the fixed diagnostic set $\mathcal{D}$. `exp1_auroc.py` overlays the AUROC + Acc trajectories of several streams in one figure. Cassano is the proposed fix; the expected result is AUROC held over the stream where TENT's collapses, at comparable csID accuracy.
 
 ---
 
@@ -259,6 +261,12 @@ BN Adapt in Phase 1 = `with torch.no_grad(): model(x)`. One line in `phase1_adap
 
 **TENT `configure_model` does one thing `load_model` does not.**
 Re-enables `requires_grad_(True)` on BN (γ,β) so Adam can update them. Everything else is already set by `load_model`.
+
+**Cassano uses two model instances.**
+A frozen scorer (`load_model` + `requires_grad_(False)`, BN batch stats) and an adapted model (`cassano.configure_model`, same BN-affine-only policy as TENT). Only the adapted model is checkpointed. Score → GMM posterior → soft-labeled loss; see `cassano.md`.
+
+**Phase 2 scripts share one diagnostic loader.**
+`src/data/diagnostic.load_diagnostic(meta, data_dir)` returns the held-out `(x_csid, y_csid, x_csood)` for a stream — used identically by `exp1_auroc`, `exp2_geometry`, and `maxcos_dist`.
 
 **Pool seed = stream seed.**
 `DataPools(seed=meta["seed"])` in both Phase 1 and Phase 2. Never use a separate diagnostic seed.
@@ -322,43 +330,44 @@ uv run scripts/reproduce_tent.py
 # ── Single stream (use stream.yaml defaults or override via CLI) ─────────────
 uv run scripts/phase1_adapt.py --method tent
 uv run scripts/phase1_adapt.py --method bn_adapt
+uv run scripts/phase1_adapt.py --method cassano
 
 # ── Compute metrics (output: results/{stream}/expN/results.json) ─────────────
 uv run scripts/exp1_auroc.py \
   --streams tent/gaussian_noise_svhn_c_open_seed0 \
-            bn_adapt/gaussian_noise_svhn_c_open_seed0
+            bn_adapt/gaussian_noise_svhn_c_open_seed0 \
+            cassano/gaussian_noise_svhn_c_open_seed0
 
 uv run scripts/exp2_geometry.py --stream tent/gaussian_noise_svhn_c_open_seed0
-uv run scripts/exp3_layerwise.py --stream tent/gaussian_noise_svhn_c_open_seed0
+uv run scripts/maxcos_dist.py   --stream cassano/gaussian_noise_svhn_c_open_seed0
 
 # ── Render figures (output: figures/{stream}/expN_*.png) ─────────────────────
 uv run scripts/plot.py --exp 1 \
   --streams tent/gaussian_noise_svhn_c_open_seed0 \
-            bn_adapt/gaussian_noise_svhn_c_open_seed0
+            bn_adapt/gaussian_noise_svhn_c_open_seed0 \
+            cassano/gaussian_noise_svhn_c_open_seed0
 
 uv run scripts/plot.py --exp 2 --streams tent/gaussian_noise_svhn_c_open_seed0
-uv run scripts/plot.py --exp 3 --streams tent/gaussian_noise_svhn_c_open_seed0
 
-# ── Inspect results → decide Path A or B ────────────────────────────────────
-
-# ── Full sweep (after decision) ──────────────────────────────────────────────
+# ── Full sweep ───────────────────────────────────────────────────────────────
 uv run scripts/sweep.py --method tent
 ```
 
 ---
 
-## 10. Decision point
+## 10. Workflow
 
 ```
-Experiments 1, 2, 3 done
+Phase 1: adapt tent / bn_adapt / cassano  → checkpoints/
         │
-        ├── Path A (fix found)
-        │     add src/tta/fix.py, src/tta/unient.py, src/tta/rosetta.py
-        │     run phase1_adapt for each
-        │     compare: exp1_auroc --streams tent bn_adapt unient rosetta fix
-        │     metrics: Acc, AUROC, FPR95, OSCR, H-score
+Phase 2: exp1_auroc + exp2_geometry on each stream  → results/
         │
-        └── Path B (no fix)
-              add scripts/exp4_vectorfield.py
-              run on tent/gaussian_noise_svhn_c_0.50_seed0
+        ├── Experiment 1 — AUROC collapse under TENT, held by BN Adapt
+        ├── Experiment 2 — norm inflation is the mechanism
+        └── Cassano — norm-suppressed fix; exp1 AUROC held at comparable Acc
+                      (maxcos_dist inspects the GMM score split)
+        │
+plot.py  → figures/   ·   sweep.py  → full corruption × seed grid
 ```
+
+Cassano method spec: `cassano.md`.

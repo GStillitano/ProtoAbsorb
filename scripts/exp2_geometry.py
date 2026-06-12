@@ -10,40 +10,16 @@ import json
 from pathlib import Path
 
 import torch
-import yaml
 
 from src.model import load_model, classifier_weights
 from src.bn_affine import evaluate_diagnostic_stream
-from src.data.cifar10c import load_cifar10c_data
 from src.data.cifar10 import load_cifar10_data
-from src.data.svhnc import load_svhn_c
-from src.data.pools import DataPools
+from src.data.diagnostic import load_diagnostic
 from src.centroids import compute as compute_centroids
 from src.device import get_device
 from src.metrics.geometry import (
     feature_norms, feature_norms_l1, cosine_to_weights, max_cosine_to_weights, centroid_distances,
 )
-
-
-def load_diagnostic(meta: dict, data_dir: str):
-    diag_cfg = yaml.safe_load(Path("configs/diagnostic.yaml").read_text())
-    x_csid, y_csid = load_cifar10c_data(meta["corruption"], meta["severity"], data_dir=data_dir)
-    if meta["csood_source"] == "svhn_c":
-        x_csood, _ = load_svhn_c(meta["corruption"], meta["severity"], data_dir=data_dir)
-    elif meta["csood_source"] == "rome32":
-        from src.data.rome32 import load_rome32_c
-        x_csood, _ = load_rome32_c(
-            folder=str(Path(data_dir) / "rome32/raw"),
-            corruption=meta["corruption"], severity=meta["severity"],
-        )
-    else:
-        raise ValueError(f"Unknown csood_source: {meta['csood_source']}")
-    pools = DataPools(
-        n_csid=len(x_csid), n_csood=len(x_csood),
-        n_diag_csid=diag_cfg["n_csid"], n_diag_csood=diag_cfg["n_csood"],
-        seed=meta["seed"],
-    )
-    return x_csid[pools.csid_diag], y_csid[pools.csid_diag], x_csood[pools.csood_diag]
 
 
 def main():

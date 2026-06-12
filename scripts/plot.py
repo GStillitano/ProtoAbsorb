@@ -8,9 +8,8 @@ Usage:
         --streams tent/gaussian_noise_svhn_c_open_seed0 \
                   bn_adapt/gaussian_noise_svhn_c_open_seed0
 
-    # Exp 2 or 3 — single stream
+    # Exp 2 — single stream
     uv run python scripts/plot.py --exp 2 --streams tent/gaussian_noise_svhn_c_open_seed0
-    uv run python scripts/plot.py --exp 3 --streams tent/gaussian_noise_svhn_c_open_seed0
 """
 import argparse
 import json
@@ -19,7 +18,7 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp",     required=True, choices=["1", "2", "3"])
+    parser.add_argument("--exp",     required=True, choices=["1", "2"])
     parser.add_argument("--streams", nargs="+",     required=True)
     parser.add_argument("--out_dir", default="figures")
     args = parser.parse_args()
@@ -41,13 +40,6 @@ def main():
         from src.viz.exp2 import plot
         sid = args.streams[0]
         p = Path("results") / sid / "exp2_geometry" / "results.json"
-        results = json.loads(p.read_text())
-        plot(results, out_root / sid)
-
-    elif args.exp == "3":
-        from src.viz.exp3 import plot
-        sid = args.streams[0]
-        p = Path("results") / sid / "exp3_layerwise" / "results.json"
         results = json.loads(p.read_text())
         plot(results, out_root / sid)
 

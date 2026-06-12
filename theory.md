@@ -12,7 +12,7 @@ The standard fix (UniEnt, ROSETTA): split each batch into presumed csID/csOOD vi
 
 **This project's thesis:** the split-and-oppose recipe has a deeper failure mode. Even without split errors, entropy minimisation inflates feature norms uniformly for both csID and csOOD, collapsing the ID/OOD norm gap that energy-based scores rely on. OOD detection degrades monotonically over the stream regardless of split quality.
 
-**Goal:** (i) reproduce TENT, (ii) characterise the failure mode experimentally, (iii) either fix it (Path A) or fully characterise the geometry (Path B).
+**Goal:** (i) reproduce TENT, (ii) characterise the failure mode experimentally (Experiments 1–2), (iii) fix it with **Cassano** — a soft-labeled, norm-suppressing open-set TTA method.
 
 ---
 
@@ -105,54 +105,34 @@ Expected signature of norm-dominant adaptation: norms rise, maxcos flat, distanc
 
 ---
 
-### Experiment 2.1 — Relative representations (`exp21_relative.py`)
+## 5. The fix — Cassano
 
-**Design open** — to be specified after Experiments 1 and 2.
+Experiments 1–2 establish the failure: entropy minimisation inflates feature norms for csID and csOOD alike, collapsing the energy-score gap. **Cassano** breaks the uniform inflation by giving csOOD samples the opposite objective — norm suppression — weighted by a soft ID/OOD posterior, so no hard split is required.
 
-Using the RRZS framework (ICLR 2023): represent each sample as its cosine similarities to a fixed anchor set. This representation is invariant to rescalings (norm changes). If TENT acts as a near-rescaling, relative representations should be stable — measure drift in relative space for csID vs csOOD separately.
+### 5.1 Two models, one learner
 
----
+A **frozen scorer** ($\theta_0$, BN batch stats, no grad) scores each sample; the **adapted model** (BN affine $(\gamma,\beta)$ trainable, TENT-style) is the deployed network. Because the scorer never changes, its score distribution is ~stationary across $t$, so scores can be pooled across steps without bias.
 
-### Experiment 3 — Layer-wise BN drift (`exp3_layerwise.py`)
+### 5.2 Score and soft label
 
-**Goal.** Which layers drift most; is drift uniform across channels (pure scaling) or structured.
+Per sample, maxcos score against the frozen head $\mathbf{W}^{(L)}$:
 
-Pure checkpoint analysis — no forward pass needed.
+$$s(x) = \max_k \frac{g_\theta(x)\cdot \mathbf{w}_k}{\|g_\theta(x)\|\,\|\mathbf{w}_k\|}$$
 
-- $\|\Gamma_l^{(t)}\|_2,\ \|B_l^{(t)}\|_2$ where $\Gamma_l^{(t)} = \gamma_l^{(t)} - \gamma_l^{(0)}$
-- $\mathrm{CV}_l^{(t)} = \mathrm{std}_k(\Gamma_{l,k}^{(t)}) / |\mathrm{mean}_k(\Gamma_{l,k}^{(t)})|$ — low CV = pure scaling
+Pool all scores seen so far, fit a 2-Gaussian GMM (ID = higher-mean component). The Bayes posterior gives a soft OOD weight, detached (a weight, not a target):
 
-Output: heatmaps over $(l, t)$ and layer profile at $t=T$.
+$$P_\text{OOD}(x) = \frac{\pi_\text{ood}\,\mathcal{N}(s\mid\mu_\text{ood},\sigma_\text{ood})}{\sum_c \pi_c\,\mathcal{N}(s\mid\mu_c,\sigma_c)}, \qquad P_\text{ID} = 1 - P_\text{OOD}$$
 
----
+### 5.3 Loss
 
-## 5. Two paths
+$$L = \frac{1}{N}\sum_i \Big[\, P_\text{ID}(x_i)\,H(p_i) \;+\; P_\text{OOD}(x_i)\,\lambda\,\|g_\theta(x_i)\|_1 \,\Big]$$
 
-```
-Experiments 1, 2, 2.1, 3
-        │
-        ├── fix identified? → PATH A
-        │     implement fix + UniEnt + ROSETTA
-        │     compare on Acc, AUROC, FPR95, OSCR, H-score over stream
-        │
-        └── no fix → PATH B
-              Experiment 4: vector field analysis
-```
+- $H(p)$ — softmax entropy: csID-soft samples pushed confident (TENT-style).
+- $\|g_\theta(x)\|_1$ — feature $\ell_1$ norm: csOOD-soft samples pushed to *suppress* norm inflation, directly countering the Experiment-1 mechanism.
+- $\lambda$ balances the terms ($H \le \ln 10 \approx 2.30$, $\|g\|_1 \approx 28$–$30$, so $\lambda \approx 0.03$).
 
-### Path A — fix identified
+An LR warmup $\mathrm{lr}_t = \mathrm{lr}\cdot r(t/K)$ shrinks early steps while the GMM pool is small and noisy.
 
-**5.A.1 Proposed fix.** *[To be filled after experiments. Exp 2.1 and Exp 3 layer profiles are the likely sources.]*
+**Evaluation.** Cassano produces the same checkpoint format as TENT and is evaluated under the identical Phase 2 protocol — Experiments 1 and 2 run on Cassano streams unchanged. Expected signature: AUROC held (or improved) over the stream while csID accuracy tracks TENT.
 
-**5.A.2 Baselines.**
-- **UniEnt / UniEnt+** (`github.com/gaozhengqing/UniEnt`): energy GMM split; entropy min csID, entropy max csOOD.
-- **ROSETTA** (Zhao et al. 2026, repo unreleased): angular loss csID; $\ell_1$ norm suppression csOOD. Prototype momentum $\alpha=0.005$.
-
-### Path B — no fix
-
-**Experiment 4 — Vector field** (`exp4_vectorfield.py`, not yet implemented).
-
-Per-step displacement: $v^{(t)}(x) = g_{\theta_t}(x) - g_{\theta_{t-1}}(x)$.
-First-order approximation via JVP (torch.func.jvp): $v_\text{approx}^{(t)} = J_{g_{\theta_{t-1}}} \cdot (\Delta\bm{\gamma}^{(t)}, \Delta\bm{\beta}^{(t)})$.
-Transient $(\Delta\mu, \Delta\sigma)$ cancel when both evaluations use $\mathcal{D}$'s own batch stats.
-
-Metrics: relative error $\bar\varepsilon^{(t)}$, radial fraction $\rho^{(t)} = \|v_r\|/\|v\|$, cumulative field $V^{(t)} = g_{\theta_t} - g_{\theta_0}$.
+Full method and config: `cassano.md`, `configs/cassano.yaml`, `src/tta/cassano.py`.
