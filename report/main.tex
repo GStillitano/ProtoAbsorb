@@ -127,11 +127,11 @@ extends TTA to the open-set regime with an explicit ID/OOD split and
 opposing per-subset objectives. We share their open-set goal but locate the
 failure in the geometry of the affine update rather than in the split.
 
-\paragraph{OOD detection.} Energy-based scoring~\cite{energy} reads
-$E(x)=-\log\sum_k e^{\psi_k(x)}$ off the logits and is a strong post-hoc
-detector. It depends on an \csid/\csood{} gap in logit magnitude, which is
-in turn dominated by feature norm. We use AUROC of the energy score as the
-primary detectability metric.
+\paragraph{OOD detection.} Energy-based scoring~\cite{energy} reads a
+log-partition energy off the logits (Eq.~\eqref{eq:energy}) and is a strong
+post-hoc detector. It depends on an \csid/\csood{} gap in logit magnitude,
+itself dominated by feature norm; we use the AUROC of the energy score
+\eqref{eq:auroc} as the primary detectability metric.
 
 \paragraph{Feature geometry.} The feature norm is a known ID/OOD
 discriminator~\cite{featurenorm}: OOD inputs tend to produce
@@ -199,44 +199,89 @@ over the stream even as accuracy rises.
 
 \subsection{Last-layer geometry}\label{sec:background}
 
-Write the penultimate embedding $\g:\mathcal{X}\to\R^d$, the frozen linear
-head $\mathbf{W}\in\R^{K\times d}$ with rows $\mathbf{w}_k$ and bias
-$\mathbf{b}$, and the logits $\psi(x)=\mathbf{W}\g(x)+\mathbf{b}$. The
-softmax head is a multinomial logistic regression on $\g(x)$; each row
-$\mathbf{w}_k$ is the normal of a class hyperplane. The decisive object is
-the decomposition of the winning logit,
+Let $\g:\mathcal{X}\to\R^d$ be the penultimate embedding and
+$\mathbf{W}=[\mathbf{w}_1,\dots,\mathbf{w}_K]^\top\in\R^{K\times d}$ the
+frozen linear head with bias $\mathbf{b}$, so that
+\begin{equation}\label{eq:logits-def}
+\psi(x)=\mathbf{W}\g(x)+\mathbf{b},
+\qquad
+\psi_k(x)=\mathbf{w}_k^\top\g(x)+b_k .
+\end{equation}
+Through \eqref{eq:softmax} the head is a multinomial logistic regression on
+$\g(x)$: each $\mathbf{w}_k$ is the normal of the class-$k$ decision
+hyperplane and the prediction is $c^*(x)=\argmax_k\psi_k(x)$. Writing the
+winning logit in polar form around the embedding gives the decomposition
+that organises the analysis,
 \begin{equation}\label{eq:logit}
 \psi_{c^*}(x)=
 \underbrace{\norm{\mathbf{w}_{c^*}}\,\norm{\g(x)}\,\cos\theta_{c^*}}
 _{\text{norm}\,\times\,\text{alignment}}+\,b_{c^*},
-\qquad c^*=\arg\max_k\psi_k(x),
+\qquad
+\cos\theta_{c^*}=\frac{\mathbf{w}_{c^*}^\top\g(x)}
+{\norm{\mathbf{w}_{c^*}}\,\norm{\g(x)}} .
 \end{equation}
-where $\cos\theta_{c^*}$ is the cosine alignment between the embedding and
-the predicted class weight. With $\mathbf{W},\mathbf{b}$ frozen, the only
-levers entropy minimisation can pull are the feature norm $\norm{\g(x)}$
-and the alignment $\cos\theta_{c^*}$.
+With $\mathbf{W},\mathbf{b}$ frozen, the only levers entropy minimisation
+can pull on $\psi_{c^*}$ are the feature norm $\norm{\g(x)}$ and the
+alignment $\cos\theta_{c^*}$.
 
 \subsection{OOD detection and the feature norm}\label{sec:ood}
 
-Two signals are relevant. \emph{Entropy/confidence}: low predictive entropy
-is taken as evidence of an ID input. \emph{Feature norm}: ID inputs tend to
-have larger embedding norm than OOD inputs~\cite{featurenorm}, and the
-energy score $E(x)=-\log\sum_k e^{\psi_k}$ reads precisely the logit
-magnitude that \eqref{eq:logit} ties to $\norm{\g(x)}$. A detector built on
-energy therefore succeeds exactly when an \csid/\csood{} norm gap is
-present.
+Two scores read this geometry. \emph{Confidence} treats a peaked predictive
+distribution as evidence of an ID input,
+\begin{equation}\label{eq:conf}
+C(x)=\max_k p_{\theta,k}(x),
+\end{equation}
+the complement of predictive entropy. \emph{Energy}~\cite{energy} reads the
+log-partition of the logits,
+\begin{equation}\label{eq:energy}
+\Energy(x)=-\log\sum_{k=1}^{K}e^{\psi_k(x)},
+\end{equation}
+a smooth maximum tracking the overall logit magnitude and hence, through
+\eqref{eq:logit}, the feature norm $\norm{\g(x)}$. Since \csid{} inputs
+carry larger embedding norm than \csood{} inputs~\cite{featurenorm}, the
+detector $s(x)=-\Energy(x)$ separates the populations exactly to the extent
+that the \emph{norm gap}
+\begin{equation}\label{eq:gap}
+\Delta(t)=\E_{\D_{\csid}}\norm{\gt(x)}-\E_{\D_{\csood}}\norm{\gt(x)}
+\end{equation}
+is positive. The open-set question is therefore whether adaptation
+preserves $\Delta(t)$.
 
 \subsection{Predicted effect of \method{Tent}}\label{sec:predict}
 
-Combining \S\ref{sec:background}--\ref{sec:ood}: with the head frozen,
-entropy minimisation raises confidence by inflating $\norm{\g(x)}$, the
-dominant lever in \eqref{eq:logit}. Crucially, BN affine parameters are
-channel-wise \emph{global} scales: they raise the norm of \emph{every}
-sample routed through the layer, \csood{} included. The two objectives are
-thus geometrically opposed---accuracy is bought by the same norm inflation
-that closes the energy gap. We therefore predict that, over the stream,
-energy-score AUROC falls while \csid{} accuracy rises. This trade-off is
-confirmed in \S\ref{sec:results} (Fig.~\ref{fig:exp1}).
+Entropy minimisation \eqref{eq:tent} lowers $H$ by sharpening $p_\theta$,
+which by \eqref{eq:softmax}--\eqref{eq:logit} is achieved most cheaply by
+raising the winning logit through its dominant factor $\norm{\g(x)}$. Yet
+the affine parameters act as a channel-wise \emph{diagonal scaling}
+\eqref{eq:bn}: to first order the adapted embedding is
+\begin{equation}\label{eq:scaling}
+\gt(x)\approx\mathbf{D}_t\,\gz(x),
+\qquad
+\mathbf{D}_t=\diag(\bm{d}_t),\ \ \bm{d}_t>\bm{0},
+\end{equation}
+a map applied to \emph{every} sample routed through the layer, \csood{}
+included. Two consequences follow.
+
+\emph{(a) Norm inflation is population-blind.} As the entries of
+$\bm{d}_t$ grow, $\norm{\gt(x)}\!\approx\!\norm{\mathbf{D}_t\gz(x)}$ rises
+for \csid{} and \csood{} alike, so the gap \eqref{eq:gap} contracts toward
+zero and the energy detector $-\Energy$ degrades.
+
+\emph{(b) Angle is invariant to uniform scaling.} For an isotropic
+$\mathbf{D}_t=c\,\mathbf{I}$ the cosine alignment in \eqref{eq:logit} is
+unchanged,
+\begin{equation}\label{eq:cos-invariant}
+\frac{\mathbf{w}_k^\top\!\big(c\,\g(x)\big)}
+{\norm{\mathbf{w}_k}\,\norm{c\,\g(x)}}
+=\frac{\mathbf{w}_k^\top\g(x)}{\norm{\mathbf{w}_k}\,\norm{\g(x)}},
+\qquad c>0 .
+\end{equation}
+The two objectives are thus geometrically opposed: accuracy is bought by
+the very norm inflation that closes the energy gap \eqref{eq:gap}, so we
+predict $\AUROC(t)\!\downarrow$ while $\mathrm{Acc}(t)\!\uparrow$
+(confirmed in \S\ref{sec:results}, Fig.~\ref{fig:exp1}). Equally,
+\eqref{eq:cos-invariant} shows a cosine statistic is immune to exactly the
+lever that breaks energy---the seed of the fix in \S\ref{sec:cassano}.
 
 % =====================================================================
 \section{Experiment on the Failure of \method{Tent}}\label{sec:experiment}
@@ -272,12 +317,41 @@ WideResNet-40-2 pretrained with AugMix+JSD~\cite{augmix} on CIFAR-10
 
 \subsection{Metrics}\label{sec:metrics}
 
-Per checkpoint we record: (i) energy-score \textbf{AUROC} and \csid{}
-\textbf{accuracy}; (ii) mean $L_2$ and $L_1$ \textbf{feature norms} per
-population and their \csid$-$\csood{} \textbf{gap}; (iii) cosine alignment
-to the source-predicted class weight and the \textbf{max cosine} over all
-class weights; (iv) distance to the frozen source-class centroids and the
-max-softmax confidence.
+Every metric is a function of a frozen checkpoint $\theta_t$ and the fixed
+diagnostic set; $\E_{\D_\bullet}$ denotes a mean over a population
+$\bullet\in\{\csid,\csood\}$, and $c^*_0(x)=\argmax_k\psi_0(x)$ is the
+\emph{source}-predicted class, frozen at $t{=}0$.
+
+\begin{itemize}\itemsep4pt
+\item \textbf{Detectability and accuracy.} $\AUROC(t)$ from
+\eqref{eq:auroc} with $s=-\Energy$, and
+$\mathrm{Acc}(t)=\E_{\D_{\csid}}\Ind\!\big[c^*_t(x)=y\big]$.
+
+\item \textbf{Feature norms and gap.} Mean $L_2$ and $L_1$ norms per
+population, $\E_{\D_\bullet}\norm{\gt(x)}_2$ and
+$\E_{\D_\bullet}\norm{\gt(x)}_1$, with gaps $\Delta_2(t),\Delta_1(t)$ as in
+\eqref{eq:gap}.
+
+\item \textbf{Alignment.} Cosine to the \emph{source}-predicted class,
+$\E_{\D_\bullet}\!\big[\cos\theta_{c^*_0(x)}\big]$, and the norm-invariant
+max cosine $\E_{\D_\bullet}\!\big[\max_k \cos\angle(\gt(x),\mathbf{w}_k)\big]$
+(the score of Eq.~\eqref{eq:score}).
+
+\item \textbf{Semantics and confidence.} Mean distance to the nearest
+frozen source centroid,
+\begin{equation}\label{eq:centroid}
+\E_{\D_\bullet}\min_{c}\norm{\gt(x)-\bm{\mu}_c^{(0)}},
+\qquad
+\bm{\mu}_c^{(0)}=\E\big[\gz(x)\mid y=c\big]\ \text{(clean CIFAR-10)};
+\end{equation}
+the \csood{} confidence $\E_{\D_{\csood}}C(x)$ from \eqref{eq:conf}; and the
+predicted-class churn $\E_{\D_{\csood}}\Ind\!\big[c^*_t(x)\neq c^*_{t-1}(x)\big]$.
+\end{itemize}
+
+\noindent At $t{=}0$ we also report the fraction of each population on the
+positive side of its predicted hyperplane,
+$F_\bullet=\E_{\D_\bullet}\Ind\!\big[\cos\theta_{c^*_0(x)}>0\big]$, which
+conditions the reading of the angular metrics.
 
 \subsection{Results}\label{sec:failure-results}
 
@@ -342,15 +416,22 @@ inflation that destroys energy scoring.
 
 We cast open-set TTA as a pipeline
 \[
-s(x)\;\longrightarrow\;\pi(\text{OOD}\mid x)\;\longrightarrow\;
-\text{labelling (soft / hard)}\;\longrightarrow\;\text{objective}.
+s(x)\;\longrightarrow\;\pi(\mathrm{OOD}\mid x)\;\longrightarrow\;
+w_i\;\longrightarrow\;\mathcal{L}.
 \]
-A score $s(x)$ is turned into a posterior $\pi(\text{OOD}\mid x)$, the
-posterior is converted into a per-sample label (a hard split or a soft
-weight), and the label gates an objective that adapts on ID and opposes on
-OOD. \method{UniEnt} instantiates this with an energy score and a hard
-split. \method{Cassano} instantiates it with a frozen alignment score and a
-soft posterior, with each choice dictated by \S\ref{sec:failure}.
+A score $s(x)$ yields a posterior $\pi(\mathrm{OOD}\mid x)$, which is turned
+into a per-sample membership weight---hard or soft---
+\begin{equation}\label{eq:label}
+w_i=
+\begin{cases}
+\Ind\!\big[\pi(\mathrm{OOD}\mid x_i)>\tau\big] & \text{(hard split)},\\[3pt]
+\pi(\mathrm{OOD}\mid x_i)\in[0,1] & \text{(soft weight)},
+\end{cases}
+\end{equation}
+and $w_i$ gates an objective that adapts on \csid{} and opposes on \csood.
+\method{UniEnt} instantiates this with an energy score and a hard split;
+\method{Cassano} with a frozen alignment score and a soft weight, each
+choice dictated by \S\ref{sec:failure}.
 
 \subsection{Method}\label{sec:method}
 
@@ -369,18 +450,27 @@ computed by a frozen model, so scores pooled across steps are unbiased---unlike
 the energy score, which is corrupted by the very adaptation it would
 supervise.
 
-\paragraph{Posterior: soft labelling.} We pool all scores seen so far and
-fit a two-component Gaussian mixture; the higher-mean component is ID. The
-detached Bayes posterior
-\begin{equation}\label{eq:post}
-\pi(\text{OOD}\mid x_i)=
-\frac{\pi_{\text{ood}}\,\mathcal{N}(s_i\mid\mu_{\text{ood}},\sigma_{\text{ood}})}
-{\sum_c \pi_c\,\mathcal{N}(s_i\mid\mu_c,\sigma_c)},
-\qquad \pi_{\text{ID}}=1-\pi_{\text{OOD}}
+\paragraph{Posterior: soft labelling.} Pool the scores seen up to step $t$,
+$\mathcal{S}_t=\bigcup_{\tau\le t}\{s_i\}_{i\in\mathcal{B}_\tau}$, and fit by
+EM a two-component Gaussian mixture
+\begin{equation}\label{eq:gmm}
+p(s)=\sum_{c\in\{\mathrm{id},\mathrm{ood}\}}
+\pi_c\,\mathcal{N}\!\big(s\mid\mu_c,\sigma_c^2\big),
+\qquad
+\mu_{\mathrm{id}}>\mu_{\mathrm{ood}} ,
 \end{equation}
-is used as a \emph{weight}, never optimised. Soft weighting avoids the
-hard-threshold errors that the split-and-oppose recipe propagates into its
-objective.
+the higher-mean component being ID. Because the scorer is frozen, the
+score law is stationary across $t$, so pooling in \eqref{eq:gmm} is
+unbiased and the fit sharpens as $|\mathcal{S}_t|$ grows. The detached Bayes
+posterior gives the soft weight \eqref{eq:label},
+\begin{equation}\label{eq:post}
+\pi(\mathrm{OOD}\mid x_i)=
+\frac{\pi_{\mathrm{ood}}\,\mathcal{N}(s_i\mid\mu_{\mathrm{ood}},\sigma_{\mathrm{ood}}^2)}
+{\sum_c \pi_c\,\mathcal{N}(s_i\mid\mu_c,\sigma_c^2)},
+\qquad \pi_{\mathrm{ID}}=1-\pi_{\mathrm{OOD}},
+\end{equation}
+used as a weight, never optimised---avoiding the hard-threshold errors that
+the split-and-oppose recipe propagates into its objective.
 
 \paragraph{Objective: oppose on the failure lever.} The two findings
 dictate the two terms:
@@ -391,12 +481,23 @@ dictate the two terms:
 \end{equation}
 On likely-\csid{} samples we minimise entropy---the useful part of
 \method{Tent}. On likely-\csood{} samples we penalise the $L_1$ feature
-norm, acting directly on the lever that finding~(i) identified: rather than
-hoping a hard split prevents norm inflation, we suppress \csood{} norms and
-re-open the energy gap. Since $H\le\ln 10\approx2.30$ while
+norm, acting directly on the lever \eqref{eq:scaling} identified: rather
+than hoping a hard split prevents norm inflation, we suppress \csood{} norms
+and re-open the gap \eqref{eq:gap}. Since $H\le\ln 10\approx2.30$ while
 $\norm{\g}_1\approx 28$--$30$, we set $\lambda\approx 1/30$ to balance the
-terms, and shrink the early learning rate with a warm-up schedule while the
-score pool---and hence the mixture---is still small.
+two terms. While the pool $\mathcal{S}_t$---and hence the mixture
+\eqref{eq:gmm}---is still small, the posterior is noisy; we damp it with a
+learning-rate warm-up over the first $K$ steps,
+\begin{equation}\label{eq:warmup}
+\eta_t=\eta\cdot r(t/K),\qquad
+r(u)=
+\begin{cases}
+u & \text{linear},\\[2pt]
+\tfrac12\big(1-\cos\pi u\big) & \text{cosine},\\[2pt]
+\dfrac{1-e^{-u/\tau}}{1-e^{-1/\tau}} & \text{exponential},
+\end{cases}
+\qquad r(u\!\ge\!1)=1 .
+\end{equation}
 
 \subsection{Results: \method{Cassano} vs.\ \method{Tent}}\label{sec:results}
 
