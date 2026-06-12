@@ -10,6 +10,7 @@
 \usepackage[margin=2.5cm]{geometry}
 \usepackage{amsmath,amssymb,bm}
 \usepackage{graphicx}
+\usepackage{tikz}
 \usepackage{booktabs}
 \usepackage{caption}
 \usepackage{subcaption}
@@ -73,128 +74,182 @@ reverses the collapse---energy-score AUROC rises over the stream where
 \method{Tent} degrades---at no meaningful accuracy cost.
 \end{abstract}
 
+% --- teaser figure (non-floating: stays under the abstract) ----------
+\begin{center}
+  \includegraphics[width=0.9\linewidth]{teaser.jpeg}
+  \captionof{figure}{\textbf{Open-set TTA.} Entropy minimisation inflates
+  feature norms uniformly, collapsing the \csid/\csood{} gap that energy
+  scores read; \method{Cassano} suppresses likely-OOD norms and preserves
+  the separation.}
+  \label{fig:teaser}
+\end{center}
+
 % =====================================================================
 \section{Introduction}
 
-Deployed classifiers operate on streams that drift away from their
-training distribution. Test-Time Adaptation responds by updating the model
-online, without labels, as the test stream arrives. The canonical instance
-is \method{Tent}~\cite{tent}: it minimises the entropy of the predictive
-distribution one batch at a time, updating only the affine parameters of
-the batch-normalisation (BN) layers. On closed-set corruption benchmarks
-this is effective and cheap.
+Test-Time Adaptation (TTA) updates a deployed model online, without
+labels, as the test stream drifts from the training distribution. The
+canonical method, \method{Tent}~\cite{tent}, minimises predictive entropy
+batch by batch, updating only the affine parameters of the
+batch-normalisation (BN) layers.
 
-The closed-set assumption rarely survives deployment. A realistic stream is
-\emph{open-set}: alongside corrupted but known-class inputs
-(\emph{covariate-shifted in-distribution}, \csid) it contains semantically
-novel inputs (\emph{covariate-shifted out-of-distribution}, \csood) that
-the model should reject rather than classify. The prevailing remedy is a
-\emph{split-and-oppose} recipe: estimate per-sample ID/OOD membership from
-a score, minimise entropy on the presumed \csid{} subset, and oppose it on
-the presumed \csood{} subset.
+Realistic streams are \emph{open-set}: alongside corrupted known-class
+inputs (\emph{covariate-shifted in-distribution}, \csid) they contain
+semantically novel ones (\emph{covariate-shifted out-of-distribution},
+\csood) that the model should reject. The prevailing remedy is
+\emph{split-and-oppose}: estimate per-sample membership from a score,
+minimise entropy on the presumed \csid{} subset, oppose it on the
+presumed \csood{} subset.
 
-We argue that this framing hides a deeper, geometric failure that is
-present even with a perfect split. With the head frozen, entropy
-minimisation can only act on the feature norm and the angular alignment to
-the class weights. The norm term dominates, and BN affine parameters scale
-features uniformly across a population; entropy minimisation therefore
-inflates \csood{} norms in lockstep with \csid{} norms, collapsing the
-ID/OOD norm gap on which energy scores depend. Detectability degrades
-regardless of split quality.
+This framing hides a geometric failure present even with a perfect split.
+With the head frozen, entropy minimisation acts only on the feature norm
+and the angular alignment to the class weights. The norm dominates, and
+BN affine parameters scale features uniformly: \csood{} norms inflate in
+lockstep with \csid{} norms, collapsing the gap that energy scores read.
+Detectability degrades regardless of split quality.
 
 \paragraph{Contributions.}
 \begin{itemize}\itemsep2pt
-  \item \textbf{Protocol.} A time-tracking, two-phase evaluation protocol
-  that records a \emph{trajectory} of OOD and geometric metrics over the
-  adaptation stream and separates persistent affine drift from transient
-  BN statistics.
-  \item \textbf{Analysis.} A geometric characterisation of \emph{why}
-  closed-set TTA degrades open-set performance: norm inflation, norm-gap
-  collapse, and angular relabelling.
+  \item \textbf{Protocol.} A two-phase protocol that tracks OOD and
+  geometric metrics over the adaptation stream, isolating persistent
+  affine drift from transient BN statistics.
+  \item \textbf{Analysis.} A geometric account of \emph{why} closed-set
+  TTA degrades open-set performance: norm inflation, gap collapse,
+  angular relabelling.
   \item \textbf{Method.} \method{Cassano}, a soft open-set TTA framework
-  whose every design choice follows from the failure analysis, and which
-  empirically reverses the AUROC collapse.
+  derived from the analysis, which empirically reverses the AUROC
+  collapse.
 \end{itemize}
 
 % =====================================================================
 \section{Related Work}
 
 \paragraph{Test-Time Adaptation.} \method{Tent}~\cite{tent} established
-entropy minimisation over BN affine parameters as a strong, lightweight
-baseline; \emph{BN Adapt}~\cite{bnadapt} is the gradient-free special case
-that merely recomputes batch statistics. \method{UniEnt}~\cite{unient}
-extends TTA to the open-set regime with an explicit ID/OOD split and
-opposing per-subset objectives. We share their open-set goal but locate the
-failure in the geometry of the affine update rather than in the split.
+entropy minimisation over BN affine parameters as a lightweight baseline;
+\emph{BN Adapt}~\cite{bnadapt} is the gradient-free special case.
+\method{UniEnt}~\cite{unient} extends TTA to the open set with a hard
+ID/OOD split and opposing per-subset objectives. We share the goal but
+locate the failure in the geometry of the affine update, not the split.
 
 \paragraph{OOD detection.} Energy-based scoring~\cite{energy} reads a
-log-partition energy off the logits (Eq.~\eqref{eq:energy}) and is a strong
-post-hoc detector. It depends on an \csid/\csood{} gap in logit magnitude,
-itself dominated by feature norm; we use the AUROC of the energy score
-\eqref{eq:auroc} as the primary detectability metric.
+log-partition energy off the logits (Eq.~\eqref{eq:energy}); its power
+rests on an \csid/\csood{} gap in logit magnitude, dominated by the
+feature norm. We use the energy-score AUROC \eqref{eq:auroc} as the
+detectability metric.
 
 \paragraph{Feature geometry.} The feature norm is a known ID/OOD
-discriminator~\cite{featurenorm}: OOD inputs tend to produce
-smaller-norm embeddings, and many post-hoc scores read this magnitude
-indirectly. Relative representations~\cite{rrzs} encode a sample by its
-cosine similarities to a fixed anchor set and are therefore invariant to
-rescaling---the precise quantity a norm-dominant adaptation leaves
-untouched. This motivates our use of a norm-invariant alignment statistic
-as the scoring signal.
+discriminator~\cite{featurenorm}: OOD inputs tend to smaller-norm
+embeddings. Relative representations~\cite{rrzs} encode a sample by its
+cosine similarities to fixed anchors and are invariant to
+rescaling---precisely what a norm-dominant adaptation leaves untouched.
+This motivates our norm-invariant alignment score.
 
 % =====================================================================
+\newpage
 \section{TTA in the Closed and Open Set}\label{sec:tta}
 
-\paragraph{Setting.} Let $f_\theta:\mathcal{X}\to\R^K$ be a $K$-class
-classifier with logits $\psi_\theta(x)\in\R^K$ and predictive distribution
+\paragraph{Test-time adaptation.} A source-trained model loses accuracy
+under covariate shift (noise, blur, weather). TTA closes this gap
+\emph{online}, with no labels and no source data, updating only a small
+subset $\theta\subset\Theta$ of the network parameters.
+
+\paragraph{Entropy minimisation (\method{Tent}).} The model sees an
+unlabelled stream of batches
+$\mathcal{B}_1\!\to\!\mathcal{B}_2\!\to\!\cdots$ of size $N$
+(Fig.~\ref{fig:stream}).
+
+% --- stream figure (non-floating: stays right here) ------------------
+\begin{center}
+  \begin{tikzpicture}[>=stealth]
+    \tikzset{batch/.style={draw, rounded corners=2pt, fill=blue!5,
+             minimum width=1.0cm, minimum height=0.6cm}}
+    % batch stream
+    \node[batch] (b1) at (0,0)   {\small $\mathcal{B}_1$};
+    \node[batch] (b2) at (1.9,0) {\small $\mathcal{B}_2$};
+    \node[batch] (b3) at (3.8,0) {\small $\mathcal{B}_3$};
+    \node        (bd) at (5.4,0) {\small $\cdots$};
+    \node[batch] (bt) at (7.0,0) {\small $\mathcal{B}_t$};
+    \node        (be) at (8.5,0) {\small $\cdots$};
+    \draw[->] (b1) -- (b2);
+    \draw[->] (b2) -- (b3);
+    \draw[->] (b3) -- (bd);
+    \draw[->] (bd) -- (bt);
+    \draw[->] (bt) -- (be);
+    % parameter trajectory
+    \node (t0) at (-1.7,-1.25) {\small $\theta_0$};
+    \node (t1) at (0,-1.25)    {\small $\theta_1$};
+    \node (t2) at (1.9,-1.25)  {\small $\theta_2$};
+    \node (t3) at (3.8,-1.25)  {\small $\theta_3$};
+    \node (td) at (5.4,-1.25)  {\small $\cdots$};
+    \node (tt) at (7.0,-1.25)  {\small $\theta_t$};
+    \node (te) at (8.5,-1.25)  {\small $\cdots$};
+    \draw[->] (t0) -- (t1);
+    \draw[->] (t1) -- (t2);
+    \draw[->] (t2) -- (t3);
+    \draw[->] (t3) -- (td);
+    \draw[->] (td) -- (tt);
+    \draw[->] (tt) -- (te);
+    % entropy-gradient steps
+    \draw[->, dashed, gray] (b1) -- (t1);
+    \draw[->, dashed, gray] (b2) -- (t2);
+    \draw[->, dashed, gray] (b3) -- (t3);
+    \draw[->, dashed, gray] (bt) -- (tt);
+    \node[gray, anchor=west] at (0.12,-0.65)
+      {\small Eq.~\eqref{eq:tent}};
+  \end{tikzpicture}
+  \captionof{figure}{\textbf{The adaptation stream.} Unlabelled batches
+  arrive online; each takes one entropy-gradient step \eqref{eq:tent} on
+  the BN affine parameters, which accumulate as
+  $\theta_0\!\to\!\cdots\!\to\!\theta_t$ while batch statistics are
+  recomputed and discarded.}
+  \label{fig:stream}
+\end{center}
+
+\noindent A $K$-class
+classifier maps an input $x$ to logits $\psi(x)\in\R^K$ and a predictive
+distribution
 \begin{equation}\label{eq:softmax}
-p_\theta(x)=\softmax\big(\psi_\theta(x)\big),
+p(x)=\softmax\big(\psi(x)\big),
 \qquad
-p_{\theta,k}(x)=\frac{e^{\psi_k(x)}}{\sum_{j=1}^{K}e^{\psi_j(x)}} .
+p_{k}(x)=\frac{e^{\psi_k(x)}}{\sum_{j=1}^{K}e^{\psi_j(x)}} .
 \end{equation}
-TTA updates a small parameter subset $\theta$ online from an unlabelled
-stream $\mathcal{B}_1,\dots,\mathcal{B}_T$ of batches of size $N$. Following
-\method{Tent}, $\theta=(\bm{\gamma},\bm{\beta})$ collects the affine
-parameters of every batch-normalisation layer, which act channel-wise as
+\method{Tent}~\cite{tent} adapts \emph{only} the affine scale and shift
+of the batch-normalisation layers,
+$\theta=(\bm{\gamma},\bm{\beta})\subset\Theta$, acting channel-wise as
 \begin{equation}\label{eq:bn}
 \mathrm{BN}(z)=\bm{\gamma}\odot
 \frac{z-\bm{\mu}_{\mathcal{B}}}{\bm{\sigma}_{\mathcal{B}}}+\bm{\beta},
 \end{equation}
-the statistics $(\bm{\mu}_{\mathcal{B}},\bm{\sigma}_{\mathcal{B}})$ being
-recomputed per batch (train mode) and never persisted, so only
-$(\bm{\gamma},\bm{\beta})$ accumulate across steps.
-
-\paragraph{Closed vs.\ open set.} In the closed set every input is
-covariate-shifted in-distribution (\csid) and the sole objective is
-accuracy. In the open set the stream also carries covariate-shifted
-out-of-distribution (\csood) inputs, from unknown classes, that must be
-\emph{rejected}: a second objective appears, \emph{detectability}, the
-separability of the two populations under a score $s:\mathcal{X}\to\R$,
-which we quantify by
-\begin{equation}\label{eq:auroc}
-\AUROC(s)=\Pr\big[\,s(X_{\csid})>s(X_{\csood})\,\big],
-\end{equation}
-the Mann--Whitney probability that an \csid{} input outscores an \csood{}
-one, estimated over $\D_{\csid}\times\D_{\csood}$.
-
-\paragraph{Entropy minimisation (\method{Tent}).} \method{Tent}~\cite{tent}
-takes one gradient step per batch on the mean predictive entropy,
+with statistics $(\bm{\mu}_{\mathcal{B}},\bm{\sigma}_{\mathcal{B}})$
+recomputed per batch and never persisted; only $(\bm{\gamma},\bm{\beta})$
+accumulate, the head and convolutional weights stay frozen. Each batch
+takes one gradient step on the mean predictive entropy,
 \begin{equation}\label{eq:tent}
 \theta_t=\theta_{t-1}-\eta\,\nabla_{\theta}\,
-\frac{1}{N}\sum_{x\in\mathcal{B}_t}H\big(p_\theta(x)\big),
+\frac{1}{N}\sum_{x\in\mathcal{B}_t}H\big(p(x)\big),
 \qquad
 H(p)=-\sum_{k=1}^{K}p_k\log p_k,
 \end{equation}
-with the head and convolutional weights frozen. Sharpening $p_\theta$ on
-corrupted \csid{} inputs recovers most of the accuracy lost to covariate
-shift. But \eqref{eq:tent} is blind to the \csid/\csood{} distinction:
-entropy is minimised on \emph{every} sample, so the model is driven to be
-confident on \csood{} inputs it should reject. \S\ref{sec:failure} shows
-this is not benign mislabelling but a structural collapse of
-\eqref{eq:auroc}: \method{Tent}'s energy-score AUROC falls monotonically
-over the stream even as accuracy rises.
+sharpening $p$ on the shifted inputs and recovering most of the accuracy
+lost to corruption.
+
+\paragraph{Closed vs.\ open set.} Each input is a two-component mixture,
+\csid{} with probability $1-\alpha$ and \csood{} (unknown classes) with
+probability $\alpha$,
+\begin{equation}\label{eq:mixture}
+x\sim(1-\alpha)\,P_{\mathrm{ID}}+\alpha\,P_{\mathrm{OOD}},
+\qquad \alpha\in[0,1].
+\end{equation}
+$\alpha=0$ is the \emph{closed set}, \method{Tent}'s design regime.
+For $\alpha>0$ the \csood{} inputs must be \emph{rejected}
+(\S\ref{sec:metrics}), yet every batch \method{Tent} adapts on is itself
+a mixture: the entropy step \eqref{eq:tent} sharpens \csood{} as well.
+Since standard OOD scores---confidence, entropy, energy---read exactly
+the peakedness entropy minimisation drives up, detection erodes.
+\S\ref{sec:failure} makes this precise.
 
 % =====================================================================
+\newpage
 \section{Understanding the Failure of \method{Tent}}\label{sec:failure}
 
 \subsection{Last-layer geometry}\label{sec:background}
@@ -207,11 +262,9 @@ frozen linear head with bias $\mathbf{b}$, so that
 \qquad
 \psi_k(x)=\mathbf{w}_k^\top\g(x)+b_k .
 \end{equation}
-Through \eqref{eq:softmax} the head is a multinomial logistic regression on
-$\g(x)$: each $\mathbf{w}_k$ is the normal of the class-$k$ decision
-hyperplane and the prediction is $c^*(x)=\argmax_k\psi_k(x)$. Writing the
-winning logit in polar form around the embedding gives the decomposition
-that organises the analysis,
+Each $\mathbf{w}_k$ is the normal of the class-$k$ decision hyperplane;
+the prediction is $c^*(x)=\argmax_k\psi_k(x)$. The winning logit in polar
+form gives the decomposition that organises the analysis,
 \begin{equation}\label{eq:logit}
 \psi_{c^*}(x)=
 \underbrace{\norm{\mathbf{w}_{c^*}}\,\norm{\g(x)}\,\cos\theta_{c^*}}
@@ -222,66 +275,73 @@ _{\text{norm}\,\times\,\text{alignment}}+\,b_{c^*},
 \end{equation}
 With $\mathbf{W},\mathbf{b}$ frozen, the only levers entropy minimisation
 can pull on $\psi_{c^*}$ are the feature norm $\norm{\g(x)}$ and the
-alignment $\cos\theta_{c^*}$.
+alignment $\cos\theta_{c^*}$ (Fig.~\ref{fig:geometry}).
 
-\subsection{OOD detection and the feature norm}\label{sec:ood}
+% --- geometry figure (non-floating: stays right here) ----------------
+\begin{center}
+  \begin{tikzpicture}[>=stealth, scale=1.15]
+    % positive half-space
+    \fill[blue!5] (-2.6,0) rectangle (2.6,2.6);
+    % decision hyperplane
+    \draw[thick] (-2.6,0) -- (2.6,0);
+    \node[below] at (1.6,0)
+      {\small $\{\,z:\ \mathbf{w}_{c^*}^{\top}z+b_{c^*}=0\,\}$};
+    \node at (-2.3,0.25) {\small $+$};
+    \node at (-2.3,-0.25) {\small $-$};
+    % normal vector
+    \draw[->, very thick, blue!60!black] (0,0) -- (0,2.2)
+      node[above] {\small $\mathbf{w}_{c^*}$};
+    % feature vector
+    \draw[->, very thick, red!65!black] (0,0) -- (50:2.4)
+      node[right] {\small $\g(x)$};
+    % projection onto the normal
+    \draw[dashed, gray] (50:2.4) -- (0,1.84);
+    \draw[gray] (-0.05,1.84) -- (0.05,1.84);
+    \node[left] at (-0.05,1.84)
+      {\small $\norm{\g(x)}\cos\theta_{c^*}$};
+    % angle
+    \draw (0,0.6) arc (90:50:0.6);
+    \node at (70:0.85) {\small $\theta_{c^*}$};
+  \end{tikzpicture}
+  \captionof{figure}{\textbf{Last-layer geometry.} The frozen head fixes
+  the class-$c^*$ hyperplane and its normal $\mathbf{w}_{c^*}$. The
+  winning logit \eqref{eq:logit} is the projection
+  $\norm{\g(x)}\cos\theta_{c^*}$, scaled by $\norm{\mathbf{w}_{c^*}}$:
+  adaptation can only stretch the feature ($\norm{\g(x)}\!\uparrow$) or
+  close the angle ($\theta_{c^*}\!\downarrow$).}
+  \label{fig:geometry}
+\end{center}
 
-Two scores read this geometry. \emph{Confidence} treats a peaked predictive
-distribution as evidence of an ID input,
+\subsection{OOD detection and entropy}\label{sec:ood}
+
+Post-hoc OOD scores read the peakedness entropy measures. Confidence,
 \begin{equation}\label{eq:conf}
-C(x)=\max_k p_{\theta,k}(x),
+C(x)=\max_k p_{k}(x),
 \end{equation}
-the complement of predictive entropy. \emph{Energy}~\cite{energy} reads the
-log-partition of the logits,
+and energy~\cite{energy}, the log-partition of the logits,
 \begin{equation}\label{eq:energy}
 \Energy(x)=-\log\sum_{k=1}^{K}e^{\psi_k(x)},
 \end{equation}
-a smooth maximum tracking the overall logit magnitude and hence, through
-\eqref{eq:logit}, the feature norm $\norm{\g(x)}$. Since \csid{} inputs
-carry larger embedding norm than \csood{} inputs~\cite{featurenorm}, the
-detector $s(x)=-\Energy(x)$ separates the populations exactly to the extent
-that the \emph{norm gap}
-\begin{equation}\label{eq:gap}
-\Delta(t)=\E_{\D_{\csid}}\norm{\gt(x)}-\E_{\D_{\csood}}\norm{\gt(x)}
+are both monotone in the predictive entropy $H(p(x))$. A detector
+$s(x)=-\Energy(x)$ flags low-entropy inputs as \csid; it works only
+because \csid{} sits at lower entropy than \csood,
+\begin{equation}\label{eq:ent-gap}
+\E_{P_{\mathrm{OOD}}}H\big(p(x)\big)>\E_{P_{\mathrm{ID}}}H\big(p(x)\big),
 \end{equation}
-is positive. The open-set question is therefore whether adaptation
-preserves $\Delta(t)$.
+\method{Tent} minimises $H$ over the whole mixed batch \eqref{eq:tent},
+\csood{} included, driving $\E_{P_{\mathrm{OOD}}}H$ toward
+$\E_{P_{\mathrm{ID}}}H$: the gap closes and detectability collapses.
 
 \subsection{Predicted effect of \method{Tent}}\label{sec:predict}
 
-Entropy minimisation \eqref{eq:tent} lowers $H$ by sharpening $p_\theta$,
-which by \eqref{eq:softmax}--\eqref{eq:logit} is achieved most cheaply by
-raising the winning logit through its dominant factor $\norm{\g(x)}$. Yet
-the affine parameters act as a channel-wise \emph{diagonal scaling}
-\eqref{eq:bn}: to first order the adapted embedding is
-\begin{equation}\label{eq:scaling}
-\gt(x)\approx\mathbf{D}_t\,\gz(x),
-\qquad
-\mathbf{D}_t=\diag(\bm{d}_t),\ \ \bm{d}_t>\bm{0},
-\end{equation}
-a map applied to \emph{every} sample routed through the layer, \csood{}
-included. Two consequences follow.
-
-\emph{(a) Norm inflation is population-blind.} As the entries of
-$\bm{d}_t$ grow, $\norm{\gt(x)}\!\approx\!\norm{\mathbf{D}_t\gz(x)}$ rises
-for \csid{} and \csood{} alike, so the gap \eqref{eq:gap} contracts toward
-zero and the energy detector $-\Energy$ degrades.
-
-\emph{(b) Angle is invariant to uniform scaling.} For an isotropic
-$\mathbf{D}_t=c\,\mathbf{I}$ the cosine alignment in \eqref{eq:logit} is
-unchanged,
-\begin{equation}\label{eq:cos-invariant}
-\frac{\mathbf{w}_k^\top\!\big(c\,\g(x)\big)}
-{\norm{\mathbf{w}_k}\,\norm{c\,\g(x)}}
-=\frac{\mathbf{w}_k^\top\g(x)}{\norm{\mathbf{w}_k}\,\norm{\g(x)}},
-\qquad c>0 .
-\end{equation}
-The two objectives are thus geometrically opposed: accuracy is bought by
-the very norm inflation that closes the energy gap \eqref{eq:gap}, so we
-predict $\AUROC(t)\!\downarrow$ while $\mathrm{Acc}(t)\!\uparrow$
-(confirmed in \S\ref{sec:results}, Fig.~\ref{fig:exp1}). Equally,
-\eqref{eq:cos-invariant} shows a cosine statistic is immune to exactly the
-lever that breaks energy---the seed of the fix in \S\ref{sec:cassano}.
+Energy and confidence grow with the winning logit $\psi_{c^*}(x)$, and
+detection works because \csid{} reaches a larger one than \csood. By the
+decomposition \eqref{eq:logit}, with $\mathbf{W},\mathbf{b}$ frozen,
+entropy minimisation \eqref{eq:tent} can raise $\psi_{c^*}$ through only
+two levers: \emph{norm inflation} ($\norm{\g(x)}\!\uparrow$) and
+\emph{re-alignment} ($\cos\theta_{c^*}\!\uparrow$). Each step pulls these
+levers on \csood{} as much as on \csid, since the batch-normalisation
+update is shared across the whole batch.
 
 % =====================================================================
 \section{Experiment on the Failure of \method{Tent}}\label{sec:experiment}
@@ -323,14 +383,24 @@ $\bullet\in\{\csid,\csood\}$, and $c^*_0(x)=\argmax_k\psi_0(x)$ is the
 \emph{source}-predicted class, frozen at $t{=}0$.
 
 \begin{itemize}\itemsep4pt
-\item \textbf{Detectability and accuracy.} $\AUROC(t)$ from
-\eqref{eq:auroc} with $s=-\Energy$, and
+\item \textbf{Detectability and accuracy.} Detectability is the
+separability of the two populations under a score $s:\mathcal{X}\to\R$,
+\begin{equation}\label{eq:auroc}
+\AUROC(s)=\Pr\big[\,s(X_{\csid})>s(X_{\csood})\,\big],
+\end{equation}
+the Mann--Whitney probability that an \csid{} input outscores an \csood{}
+one, estimated over $\D_{\csid}\times\D_{\csood}$; we use $s=-\Energy$ and
+write $\AUROC(t)$ for the frozen checkpoint $\theta_t$. Accuracy is
 $\mathrm{Acc}(t)=\E_{\D_{\csid}}\Ind\!\big[c^*_t(x)=y\big]$.
 
 \item \textbf{Feature norms and gap.} Mean $L_2$ and $L_1$ norms per
 population, $\E_{\D_\bullet}\norm{\gt(x)}_2$ and
-$\E_{\D_\bullet}\norm{\gt(x)}_1$, with gaps $\Delta_2(t),\Delta_1(t)$ as in
-\eqref{eq:gap}.
+$\E_{\D_\bullet}\norm{\gt(x)}_1$, and the \csid$-$\csood{} \emph{norm gap}
+\begin{equation}\label{eq:gap}
+\Delta(t)=\E_{\D_{\csid}}\norm{\gt(x)}-\E_{\D_{\csood}}\norm{\gt(x)}
+\end{equation}
+($\Delta_2,\Delta_1$ for each norm), whose positivity the energy detector
+depends on.
 
 \item \textbf{Alignment.} Cosine to the \emph{source}-predicted class,
 $\E_{\D_\bullet}\!\big[\cos\theta_{c^*_0(x)}\big]$, and the norm-invariant
@@ -481,9 +551,16 @@ dictate the two terms:
 \end{equation}
 On likely-\csid{} samples we minimise entropy---the useful part of
 \method{Tent}. On likely-\csood{} samples we penalise the $L_1$ feature
-norm, acting directly on the lever \eqref{eq:scaling} identified: rather
-than hoping a hard split prevents norm inflation, we suppress \csood{} norms
-and re-open the gap \eqref{eq:gap}. Since $H\le\ln 10\approx2.30$ while
+norm. The shared affine update acts as a channel-wise \emph{diagonal
+scaling}, to first order
+\begin{equation}\label{eq:scaling}
+\gt(x)\approx\mathbf{D}_t\,\gz(x),
+\qquad
+\mathbf{D}_t=\diag(\bm{d}_t),\ \ \bm{d}_t>\bm{0},
+\end{equation}
+inflating every sample's norm; acting directly on this lever, rather than
+hoping a hard split prevents norm inflation, we suppress \csood{} norms and
+re-open the gap \eqref{eq:gap}. Since $H\le\ln 10\approx2.30$ while
 $\norm{\g}_1\approx 28$--$30$, we set $\lambda\approx 1/30$ to balance the
 two terms. While the pool $\mathcal{S}_t$---and hence the mixture
 \eqref{eq:gmm}---is still small, the posterior is noisy; we damp it with a
