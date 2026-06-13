@@ -55,36 +55,38 @@
 % =====================================================================
 \begin{abstract}
 Test-Time Adaptation (TTA) keeps a deployed model accurate under
-distribution shift. In the open world its success hinges on a second
-requirement that is often ignored: the model must keep separating
+distribution shift, but in the open world it must also keep separating
 in-distribution inputs from semantically novel out-of-distribution (OOD)
-inputs. Existing open-set methods rely on high-confidence detection and
-hard thresholds, and do not act on the feature norm directly, even though
-the norm is the quantity adaptation moves most. We give a geometric
-account of why the canonical entropy-based method (\method{Tent}) is
-structurally at odds with OOD detection: with a frozen head, entropy
-minimisation inflates feature norms uniformly across populations,
-collapsing the norm gap that energy scores read. As our contribution we
-introduce \method{Cassano}, a soft open-set TTA framework built around a
-frozen, norm-invariant alignment score and a feature-norm objective:
-likely-ID samples are adapted by entropy minimisation, likely-OOD samples
-are regularised by an $L_1$ penalty on the feature norm that preserves the
-OOD signal lost under covariate shift. On CIFAR-10-C, \method{Cassano}
-reverses the collapse---energy-score AUROC rises over the stream where
-\method{Tent} degrades---at no meaningful accuracy cost.
+ones. We study how a standard entropy-minimisation method
+(\method{Tent}) trades off these two goals over time: as adaptation
+proceeds it stays accurate, but its ability to detect OOD inputs steadily
+degrades. We trace this to the geometry of the learned embeddings,
+tracking how their properties drift as the model adapts and showing that
+this drift is what erases the signal OOD detectors rely on. Guided by
+this analysis, we introduce \method{Cassano}, a TTA method that adapts
+likely-in-distribution and likely-OOD inputs differently so that the
+model keeps improving under shift without losing the geometric signal
+that separates novel inputs. On CIFAR-10-C, \method{Cassano} preserves
+OOD detection where \method{Tent} degrades, at no meaningful accuracy
+cost.
 \end{abstract}
 
 % --- teaser figure (non-floating: stays under the abstract) ----------
 \begin{center}
   \includegraphics[width=0.9\linewidth]{teaser.jpeg}
-  \captionof{figure}{\textbf{Open-set TTA.} Entropy minimisation inflates
-  feature norms uniformly, collapsing the \csid/\csood{} gap that energy
-  scores read; \method{Cassano} suppresses likely-OOD norms and preserves
-  the separation.}
+  \captionof{figure}{\textbf{\method{Cassano} at a glance.} Each open-set
+  batch $\mathcal{B}_t$ is scored by a \emph{frozen} model ($\theta_0$),
+  whose norm-invariant alignment score separates \csid{} (high) from
+  \csood{} (low) into a soft posterior $p(\mathrm{OOD}\mid x)$. That
+  posterior gates a split objective on the adapted model,
+  $\mathcal{L}=\mathcal{L}_{\csid}+\mathcal{L}_{\csood}$---entropy on
+  likely-\csid, an $L_1$ feature-norm penalty on likely-\csood---whose
+  gradient step yields $\theta_t$.}
   \label{fig:teaser}
 \end{center}
 
 % =====================================================================
+\newpage
 \section{Introduction}
 
 Test-Time Adaptation (TTA) updates a deployed model online, without
@@ -102,11 +104,12 @@ minimise entropy on the presumed \csid{} subset, oppose it on the
 presumed \csood{} subset.
 
 This framing hides a geometric failure present even with a perfect split.
-With the head frozen, entropy minimisation acts only on the feature norm
-and the angular alignment to the class weights. The norm dominates, and
-BN affine parameters scale features uniformly: \csood{} norms inflate in
-lockstep with \csid{} norms, collapsing the gap that energy scores read.
-Detectability degrades regardless of split quality.
+With the head frozen, entropy minimisation can only stretch the feature
+norm or rotate its angle to the class weights. The norm gap is already
+weak under covariate shift, so what gives way is the angle: \csood{}
+inputs re-align onto their nearest weight and drift into the source
+classes until energy-based detection can no longer separate them from
+\csid. Detectability degrades regardless of split quality.
 
 \paragraph{Contributions.}
 \begin{itemize}\itemsep2pt
@@ -114,8 +117,9 @@ Detectability degrades regardless of split quality.
   geometric metrics over the adaptation stream, isolating persistent
   affine drift from transient BN statistics.
   \item \textbf{Analysis.} A geometric account of \emph{why} closed-set
-  TTA degrades open-set performance: norm inflation, gap collapse,
-  angular relabelling.
+  TTA degrades open-set performance: not the weak norm gap but an
+  \emph{angular} collapse---\csood{} re-aligns and is absorbed into the
+  source classes.
   \item \textbf{Method.} \method{Cassano}, a soft open-set TTA framework
   derived from the analysis, which empirically reverses the AUROC
   collapse.
@@ -134,28 +138,32 @@ locate the failure in the geometry of the affine update, not the split.
 \paragraph{OOD detection.} Energy-based scoring~\cite{energy} reads a
 log-partition energy off the logits (Eq.~\eqref{eq:energy}); its power
 rests on an \csid/\csood{} gap in logit magnitude, dominated by the
-feature norm. We use the energy-score AUROC \eqref{eq:auroc} as the
-detectability metric.
+feature norm. We use the energy-score AUROC as the detectability metric.
 
 \paragraph{Feature geometry.} The feature norm is a known ID/OOD
 discriminator~\cite{featurenorm}: OOD inputs tend to smaller-norm
-embeddings. Relative representations~\cite{rrzs} encode a sample by its
+embeddings. Relative representations encode a sample by its
 cosine similarities to fixed anchors and are invariant to
 rescaling---precisely what a norm-dominant adaptation leaves untouched.
 This motivates our norm-invariant alignment score.
+
+\paragraph{Benchmark and backbone.} We evaluate on CIFAR-10-C, the
+corruption benchmark standardised by \method{RobustBench}~\cite{robustbench},
+and load its WideResNet backbone through the \method{RobustBench} model
+zoo. The backbone is trained with \method{AugMix}~\cite{augmix}, a data
+augmentation scheme that mixes randomly composed transforms to improve
+robustness and calibration under corruption---a representative,
+corruption-robust source model for the open-set TTA setting.
 
 % =====================================================================
 \newpage
 \section{TTA in the Closed and Open Set}\label{sec:tta}
 
-\paragraph{Test-time adaptation.} A source-trained model loses accuracy
-under covariate shift (noise, blur, weather). TTA closes this gap
-\emph{online}, with no labels and no source data, updating only a small
-subset $\theta\subset\Theta$ of the network parameters.
-
-\paragraph{Entropy minimisation (\method{Tent}).} The model sees an
-unlabelled stream of batches
-$\mathcal{B}_1\!\to\!\mathcal{B}_2\!\to\!\cdots$ of size $N$
+\paragraph{Test-time adaptation.} Under covariate shift (noise, blur,
+weather) a source-trained model loses accuracy. TTA recovers it
+\emph{online}---no labels, no source data---updating only a small subset
+$\theta\subset\Theta$ of parameters from an unlabelled stream of
+size-$N$ batches $\mathcal{B}_1\!\to\!\mathcal{B}_2\!\to\!\cdots$
 (Fig.~\ref{fig:stream}).
 
 % --- stream figure (non-floating: stays right here) ------------------
@@ -205,7 +213,7 @@ $\mathcal{B}_1\!\to\!\mathcal{B}_2\!\to\!\cdots$ of size $N$
   \label{fig:stream}
 \end{center}
 
-\noindent A $K$-class
+\paragraph{Entropy minimisation (\method{Tent}).} A $K$-class
 classifier maps an input $x$ to logits $\psi(x)\in\R^K$ and a predictive
 distribution
 \begin{equation}\label{eq:softmax}
@@ -233,23 +241,36 @@ H(p)=-\sum_{k=1}^{K}p_k\log p_k,
 sharpening $p$ on the shifted inputs and recovering most of the accuracy
 lost to corruption.
 
-\paragraph{Closed vs.\ open set.} Each input is a two-component mixture,
-\csid{} with probability $1-\alpha$ and \csood{} (unknown classes) with
-probability $\alpha$,
+\paragraph{Closed vs.\ open set.} \method{Tent} is designed for the
+\emph{closed set}: every batch holds \csid{} inputs only, no \csood. In
+practice the stream is \emph{open}---each input is a two-component
+mixture, \csid{} with probability $1-\alpha$ and \csood{} (unknown
+classes) with probability $\alpha$,
 \begin{equation}\label{eq:mixture}
-x\sim(1-\alpha)\,P_{\mathrm{ID}}+\alpha\,P_{\mathrm{OOD}},
-\qquad \alpha\in[0,1].
+x_i\overset{\text{iid}}{\sim}(1-\alpha)\,P_{\mathrm{ID}}
++\alpha\,P_{\mathrm{OOD}},
+\qquad \alpha\in[0,1],
 \end{equation}
-$\alpha=0$ is the \emph{closed set}, \method{Tent}'s design regime.
-For $\alpha>0$ the \csood{} inputs must be \emph{rejected}
-(\S\ref{sec:metrics}), yet every batch \method{Tent} adapts on is itself
-a mixture: the entropy step \eqref{eq:tent} sharpens \csood{} as well.
-Since standard OOD scores---confidence, entropy, energy---read exactly
-the peakedness entropy minimisation drives up, detection erodes.
-\S\ref{sec:failure} makes this precise.
+so $\alpha=0$ recovers the closed set. For $\alpha>0$ the goal is now
+double: raise accuracy on \csid{} while keeping \csood{} detection high
+(\S\ref{sec:metrics}). The two conflict: every batch \method{Tent} adapts
+on is itself a mixture, and the entropy step \eqref{eq:tent} sharpens
+\csood{} as well. Since standard OOD scores---confidence, entropy,
+energy---read exactly the peakedness entropy minimisation drives up,
+detection erodes (Fig.~\ref{fig:openclosed}). \S\ref{sec:failure} makes
+this precise.
+
+% --- open vs closed figure (non-floating: stays right here) ----------
+\begin{center}
+  \includegraphics[width=0.35\linewidth]{open_vs_closed.jpeg}
+  \captionof{figure}{\textbf{Closed vs.\ open set.} In the closed set
+  ($\alpha=0$) the stream contains only \csid{} inputs and accuracy is
+  the sole goal; in the open set ($\alpha>0$) \csood{} inputs must also
+  be rejected, yet the entropy step sharpens both populations alike.}
+  \label{fig:openclosed}
+\end{center}
 
 % =====================================================================
-\newpage
 \section{Understanding the Failure of \method{Tent}}\label{sec:failure}
 
 \subsection{Last-layer geometry}\label{sec:background}
@@ -314,7 +335,7 @@ alignment $\cos\theta_{c^*}$ (Fig.~\ref{fig:geometry}).
 
 \subsection{OOD detection and entropy}\label{sec:ood}
 
-Post-hoc OOD scores read the peakedness entropy measures. Confidence,
+Post-hoc OOD scores read the same peakedness as entropy. Confidence,
 \begin{equation}\label{eq:conf}
 C(x)=\max_k p_{k}(x),
 \end{equation}
@@ -332,154 +353,325 @@ because \csid{} sits at lower entropy than \csood,
 \csood{} included, driving $\E_{P_{\mathrm{OOD}}}H$ toward
 $\E_{P_{\mathrm{ID}}}H$: the gap closes and detectability collapses.
 
-\subsection{Predicted effect of \method{Tent}}\label{sec:predict}
+\subsection{How \method{Tent} reshapes embeddings}\label{sec:predict}
 
-Energy and confidence grow with the winning logit $\psi_{c^*}(x)$, and
-detection works because \csid{} reaches a larger one than \csood. By the
-decomposition \eqref{eq:logit}, with $\mathbf{W},\mathbf{b}$ frozen,
-entropy minimisation \eqref{eq:tent} can raise $\psi_{c^*}$ through only
-two levers: \emph{norm inflation} ($\norm{\g(x)}\!\uparrow$) and
-\emph{re-alignment} ($\cos\theta_{c^*}\!\uparrow$). Each step pulls these
-levers on \csood{} as much as on \csid, since the batch-normalisation
-update is shared across the whole batch.
+The entropy step \eqref{eq:tent} updates only the BN affine parameters
+$(\bm{\gamma},\bm{\beta})$; the head $\mathbf{W},\mathbf{b}$ and the
+convolutional weights stay frozen. So the sole thing \method{Tent} can
+change is the embedding $\g(x)$---the logit \eqref{eq:logit} is a fixed
+function of it. Minimising $H$ sharpens the softmax, i.e.\ reshapes
+$\g(x)$ to \emph{maximise} the winning logit $\psi_{c^*}(x)$, and by the
+decomposition \eqref{eq:logit} an embedding moves it only two ways:
+\emph{norm inflation} ($\norm{\g(x)}\!\uparrow$) or \emph{re-alignment}
+($\theta_{c^*}\!\downarrow$). Both push $\g(x)$ deeper into the positive
+half-space---raising the signed distance $d$ to the hyperplane and, since
+$\psi_{c^*}=\norm{\mathbf{w}_{c^*}}\,d$, the logit itself
+(Fig.~\ref{fig:levers}). Both act on \csood{} as much as on \csid,
+since $(\bm{\gamma},\bm{\beta})$ are shared across the whole batch.
+
+% --- two levers figure (non-floating: stays right here) --------------
+\begin{center}
+\begin{tikzpicture}[>=stealth, scale=0.9]
+  % shared hyperplane
+  \draw[thick] (-1.3,0) -- (8.7,0);
+  % central reference scale (shared by both diagrams)
+  \draw[gray!55, dashed] (1.41,1.41) -- (8.41,1.41);
+  \draw[gray!55, dashed] (1.96,1.96) -- (7.42,1.96);
+  \draw[<->] (3.3,0) -- (3.3,1.41) node[midway,left]{\scriptsize $d$};
+  \draw[<->] (3.7,0) -- (3.7,1.96) node[midway,right]{\scriptsize $d'$};
+  % ---- left: norm inflation (same angle, longer feature) ----
+  \draw[->, blue!60!black, thick] (0,0) -- (0,2.2)
+    node[above]{\scriptsize $\mathbf{w}_{c^*}$};
+  \draw[->, gray, dashed, thick] (0,0) -- (45:2.0);
+  \draw[->, red!65!black, thick] (0,0) -- (45:2.77)
+    node[above right]{\scriptsize $\g(x)$};
+  \draw (0,0.6) arc (90:45:0.6);
+  \node at (67:0.9) {\scriptsize $\theta$};
+  \node[align=center] at (0.6,-0.8)
+    {\scriptsize\textbf{Norm inflation}\\[-1pt]\scriptsize $\theta$ fixed,\ $\norm{\g}\!\uparrow$};
+  % ---- right: re-alignment (same length, smaller angle) ----
+  \draw[->, blue!60!black, thick] (7,0) -- (7,2.2)
+    node[above]{\scriptsize $\mathbf{w}_{c^*}$};
+  \draw[->, gray, dashed, thick] (7,0) -- (8.41,1.41);
+  \draw[->, red!65!black, thick] (7,0) -- (7.42,1.96)
+    node[above right]{\scriptsize $\g(x)$};
+  \draw (7,0.6) arc (90:45:0.6);
+  \draw[red!65!black] (7,1.0) arc (90:78:1.0);
+  \node at (7.48,0.82) {\scriptsize $\theta$};
+  \node[align=center] at (7.4,-0.8)
+    {\scriptsize\textbf{Re-alignment}\\[-1pt]\scriptsize $\norm{\g}$ fixed,\ $\theta\!\downarrow$};
+\end{tikzpicture}
+\captionof{figure}{\textbf{Two levers, one effect.} Both start from the
+same feature (grey) and reach the same final distance $d'$ to the
+hyperplane (shared dashed scale). The winning logit is
+$\psi_{c^*}=\norm{\mathbf{w}_{c^*}}\,d$; raising it by norm inflation at
+fixed angle (left) or by re-alignment at fixed length (right) is
+indistinguishable from the logit alone.}
+\label{fig:levers}
+\end{center}
+
+\noindent The two panels reach the same $d'$, so the logit does not say
+which lever \method{Tent} actually uses. This sets the questions the next
+section probes empirically. As the adaptation steps accumulate, how is the
+rising winning logit split between norm inflation and re-alignment? And
+since \csid{} and \csood{} start from different embedding
+geometry---\csood{} at smaller norm and weaker alignment---do the two
+populations move along \emph{different} levers, or along the same one?
 
 % =====================================================================
 \section{Experiment on the Failure of \method{Tent}}\label{sec:experiment}
 
 \subsection{Time-tracking protocol}\label{sec:protocol}
 
-We separate adaptation from evaluation so that any change in a metric
-reflects only the persistent affine drift.
+We track how \method{Tent} reshapes a fixed dataset as adaptation
+proceeds. Since adaptation is sequential, we separate \emph{adapting} the
+model from \emph{measuring} it, so a metric reflects the parameter
+trajectory, not the batch it was read on (Fig.~\ref{fig:protocol}).
 
-\paragraph{Phase 1 (adaptation).} Run a method on a stream of $T$ batches
-and save the BN affine state $\theta_t$ after each step, yielding $T{+}1$
-checkpoints $\theta_0,\dots,\theta_T$.
+\paragraph{Adapt.} Run \method{Tent} on the open-set stream
+$\mathcal{B}_1\!\to\!\cdots\!\to\!\mathcal{B}_T$, generating the sequence
+of iterates $(\theta_t)_{t=0}^{T}$ produced by the update \eqref{eq:tent}.
 
-\paragraph{Phase 2 (analysis).} Load each checkpoint, freeze it, and
-evaluate it on a fixed held-out diagnostic set
-$\D=\D_{\csid}\cup\D_{\csood}$ (2000$+$2000 examples) that is never adapted
-on. Any change in a trajectory $m(0),\dots,m(T)$ then reflects only the
-drift $\theta_{t-1}\!\to\!\theta_t$. The diagnostic set is evaluated in
-$20$ fixed mixed batches of $100\,\csid+100\,\csood$---the same size and
-ID/OOD regime as adaptation---so BN statistics are computed under
-deployment-realistic conditions. A single large batch would change the
-effective feature space; evaluating the populations separately would let
-each be normalised by its own statistics and artificially stabilise the
-\csood{} features, masking the norm-gap collapse we measure.
+\paragraph{Evaluate.} Hold each iterate $\theta_t$ fixed and evaluate it on
+one fixed set $\D=\D_{\csid}\cup\D_{\csood}$, never adapted on, so the
+trajectory $m(0),\dots,m(T)$ isolates the per-step drift
+$\theta_{t-1}\!\to\!\theta_t$. We
+split $\D$ into $J$ small mixed batches $\D^{(j)}$ and average the
+metric, reproducing the regime \method{Tent} adapts under: open-set
+batches, small and mixed, with noisy statistics. Batch normalisation
+rescales each batch by its own statistics, so a large or
+single-population batch would wash out exactly that signal.
 
-\paragraph{Setup.} A stream is fixed by
-$(\text{method},\text{corruption},\text{\csood source},\text{open\_set},
-\text{seed})$. Unless noted we use CIFAR-10-C \texttt{gaussian\_noise} at
-severity~$5$ as \csid{} and SVHN-C as \csood, balanced open-set, $N{=}200$,
-$T{=}80$ with no repeated examples, seed~$0$. The backbone is
-WideResNet-40-2 pretrained with AugMix+JSD~\cite{augmix} on CIFAR-10
-(RobustBench~\cite{robustbench}, clean accuracy $\approx 95.8\%$).
+% --- protocol figure (non-floating) ---------------------------------
+\begin{center}
+\begin{tikzpicture}[>=stealth,
+   batch/.style={draw, rounded corners=2pt, fill=blue!6,
+                 minimum width=0.85cm, minimum height=0.55cm},
+   ev/.style={draw, rounded corners=2pt, fill=green!8,
+              minimum width=1.25cm, minimum height=0.5cm},
+   box/.style={draw, rounded corners=2pt, fill=orange!12,
+               minimum width=1.25cm, minimum height=0.7cm}]
+  % ---- adaptation stream (top) ----
+  \node[anchor=east] at (-1.0,3.05) {\small\textbf{adapt}};
+  \node[batch] (b1) at (0,3.05) {\small $\mathcal{B}_1$};
+  \node[batch] (b2) at (1.6,3.05) {\small $\mathcal{B}_2$};
+  \node[batch] (b3) at (3.2,3.05) {\small $\mathcal{B}_3$};
+  \node (bd) at (4.4,3.05) {\small $\cdots$};
+  \node[batch] (bt) at (5.6,3.05) {\small $\mathcal{B}_t$};
+  \node (be) at (6.7,3.05) {\small $\cdots$};
+  \draw[->] (b1)--(b2);\draw[->] (b2)--(b3);\draw[->] (b3)--(bd);
+  \draw[->] (bd)--(bt);\draw[->] (bt)--(be);
+  % parameter trajectory
+  \node (t0) at (-1.5,2.05) {\small $\theta_0$};
+  \node (t1) at (0,2.05) {\small $\theta_1$};
+  \node (t2) at (1.6,2.05) {\small $\theta_2$};
+  \node (t3) at (3.2,2.05) {\small $\theta_3$};
+  \node (td) at (4.4,2.05) {\small $\cdots$};
+  \node[draw, rounded corners=2pt, fill=orange!12] (tt) at (5.6,2.05) {\small $\theta_t$};
+  \node (te) at (6.7,2.05) {\small $\cdots$};
+  \draw[->] (t0)--(t1);\draw[->] (t1)--(t2);\draw[->] (t2)--(t3);
+  \draw[->] (t3)--(td);\draw[->] (td)--(tt);\draw[->] (tt)--(te);
+  \draw[->,dashed,gray] (b1)--(t1);\draw[->,dashed,gray] (b2)--(t2);
+  \draw[->,dashed,gray] (b3)--(t3);\draw[->,dashed,gray] (bt)--(tt);
+  % ---- evaluation of one iterate (bottom) ----
+  \node[anchor=east] at (-1.0,0.3) {\small\textbf{evaluate}};
+  \node[box] (enc) at (5.6,0.3) {\small $g_{\theta_t}$};
+  \draw[->, thick] (tt) -- (enc) node[midway,right]{\small $\theta_t$ fixed};
+  % big evaluation set, split into per-batch D^{(j)}
+  \node[draw, rounded corners=3pt, fill=green!8,
+        minimum width=0.95cm, minimum height=2.2cm] (dset) at (0.45,0.18) {};
+  \node at (0.45,0.18) {\large $\D$};
+  \node[ev] (e1) at (2.6,1.05) {\small $\D^{(1)}$};
+  \node[ev] (e2) at (2.6,0.35) {\small $\D^{(2)}$};
+  \node (ed) at (2.6,-0.15) {\small $\vdots$};
+  \node[ev] (e3) at (2.6,-0.7) {\small $\D^{(J)}$};
+  \draw[->] (dset.east) -- (e1.west);
+  \draw[->] (dset.east) -- (e2.west);
+  \draw[->] (dset.east) -- (e3.west);
+  \draw[->] (e1)--(enc);\draw[->] (e2)--(enc);\draw[->] (e3)--(enc);
+  % average -> metric
+  \node (avg) at (7.7,0.3) {\small $\tfrac1J\!\sum$};
+  \draw[->, thick] (enc)--(avg);
+  \draw[->, thick] (avg)-- (8.9,0.3) node[anchor=west]{\small $m(t)$};
+\end{tikzpicture}
+\captionof{figure}{\textbf{Two-phase protocol.} \emph{Top:} adaptation runs
+once along the open-set stream, producing one iterate $\theta_t$ per
+step. \emph{Bottom:} each iterate is held fixed and evaluated on the
+same diagnostic set $\D$, split into $J$ mixed \csid/\csood{} batches;
+per-batch metrics are averaged into $m(t)$. Sweeping $t$ traces the metric
+over adaptation.}
+\label{fig:protocol}
+\end{center}
 
 \subsection{Metrics}\label{sec:metrics}
 
-Every metric is a function of a frozen checkpoint $\theta_t$ and the fixed
-diagnostic set; $\E_{\D_\bullet}$ denotes a mean over a population
-$\bullet\in\{\csid,\csood\}$, and $c^*_0(x)=\argmax_k\psi_0(x)$ is the
-\emph{source}-predicted class, frozen at $t{=}0$.
+\S\ref{sec:predict} left two questions: as the winning logit rises, how
+does it split between \emph{norm} and \emph{alignment}, and do \csid{} and
+\csood{} move along the same lever? The metrics read exactly these two
+axes, plus the detection outcome they drive. Each is a population mean
+$\E_{\D_\bullet}$ over $\bullet\in\{\csid,\csood\}$ of a fixed iterate
+$\theta_t$; $c^*_0(x)=\argmax_k\psi_0(x)$ is the source-predicted class,
+fixed at $t{=}0$.
 
-\begin{itemize}\itemsep4pt
-\item \textbf{Detectability and accuracy.} Detectability is the
-separability of the two populations under a score $s:\mathcal{X}\to\R$,
-\begin{equation}\label{eq:auroc}
-\AUROC(s)=\Pr\big[\,s(X_{\csid})>s(X_{\csood})\,\big],
-\end{equation}
-the Mann--Whitney probability that an \csid{} input outscores an \csood{}
-one, estimated over $\D_{\csid}\times\D_{\csood}$; we use $s=-\Energy$ and
-write $\AUROC(t)$ for the frozen checkpoint $\theta_t$. Accuracy is
-$\mathrm{Acc}(t)=\E_{\D_{\csid}}\Ind\!\big[c^*_t(x)=y\big]$.
+\paragraph{Accuracy--detection trade-off.} The two goals open-set TTA must
+hold together. Accuracy on \csid,
+$\mathrm{Acc}(t)=\E_{\D_{\csid}}\Ind[c^*_t(x)=y]$, and the energy-score
+detectability $\AUROC(t)$ under $s=-\Energy$---the probability an \csid{}
+input scores more ID-like than an \csood{} one. Together they say whether
+adaptation keeps accuracy while preserving the OOD signal.
 
-\item \textbf{Feature norms and gap.} Mean $L_2$ and $L_1$ norms per
-population, $\E_{\D_\bullet}\norm{\gt(x)}_2$ and
-$\E_{\D_\bullet}\norm{\gt(x)}_1$, and the \csid$-$\csood{} \emph{norm gap}
+\paragraph{Norms and gap.} Per-population mean $L_2$ and $L_1$ feature
+norms, $\E_{\D_\bullet}\norm{\gt(x)}_2$ and $\E_{\D_\bullet}\norm{\gt(x)}_1$,
+and the \csid$-$\csood{} \emph{norm gap}
 \begin{equation}\label{eq:gap}
 \Delta(t)=\E_{\D_{\csid}}\norm{\gt(x)}-\E_{\D_{\csood}}\norm{\gt(x)}
 \end{equation}
-($\Delta_2,\Delta_1$ for each norm), whose positivity the energy detector
-depends on.
+($\Delta_2,\Delta_1$ per norm). Energy detection works only while
+$\Delta>0$ (Fig.~\ref{fig:metrics}, right).
 
-\item \textbf{Alignment.} Cosine to the \emph{source}-predicted class,
-$\E_{\D_\bullet}\!\big[\cos\theta_{c^*_0(x)}\big]$, and the norm-invariant
-max cosine $\E_{\D_\bullet}\!\big[\max_k \cos\angle(\gt(x),\mathbf{w}_k)\big]$
-(the score of Eq.~\eqref{eq:score}).
-
-\item \textbf{Semantics and confidence.} Mean distance to the nearest
-frozen source centroid,
+\paragraph{Alignment and semantics.} The angular lever. Cosine to the
+source-predicted class $\E_{\D_\bullet}[\cos\theta_{c^*_0(x)}]$; the
+norm-invariant \emph{max cosine}
+$\E_{\D_\bullet}[\max_k\cos\angle(\gt(x),\mathbf{w}_k)]$, the alignment to
+the nearest class weight (Eq.~\eqref{eq:score}; Fig.~\ref{fig:metrics},
+left); and the distance to the nearest \emph{frozen} source centroid,
 \begin{equation}\label{eq:centroid}
 \E_{\D_\bullet}\min_{c}\norm{\gt(x)-\bm{\mu}_c^{(0)}},
 \qquad
-\bm{\mu}_c^{(0)}=\E\big[\gz(x)\mid y=c\big]\ \text{(clean CIFAR-10)};
+\bm{\mu}_c^{(0)}=\E\big[\gz(x)\mid y=c\big]\ \text{(clean ID)},
 \end{equation}
-the \csood{} confidence $\E_{\D_{\csood}}C(x)$ from \eqref{eq:conf}; and the
-predicted-class churn $\E_{\D_{\csood}}\Ind\!\big[c^*_t(x)\neq c^*_{t-1}(x)\big]$.
-\end{itemize}
+which tells re-alignment apart from genuine semantic movement. We also
+track \csood{} confidence $\E_{\D_{\csood}}C(x)$.
 
-\noindent At $t{=}0$ we also report the fraction of each population on the
-positive side of its predicted hyperplane,
-$F_\bullet=\E_{\D_\bullet}\Ind\!\big[\cos\theta_{c^*_0(x)}>0\big]$, which
-conditions the reading of the angular metrics.
+% --- metrics illustration (non-floating) ----------------------------
+\begin{center}
+\begin{tikzpicture}[>=stealth, scale=0.95]
+  % ===== left: alignment (max cosine) =====
+  \draw[->, blue!60!black, thick] (0,0) -- (48:3.0)
+    node[above right]{\scriptsize $\mathbf{w}_1$};
+  \draw[->, blue!60!black, thick] (0,0) -- (142:3.0)
+    node[above left]{\scriptsize $\mathbf{w}_2$};
+  \draw[->, red!70!black, very thick] (0,0) -- (68:2.4)
+    node[above]{\scriptsize $\g(x)$};
+  % max-cos angle to nearest weight (w1), highlighted
+  \draw[very thick, red!70!black] (48:1.0) arc (48:68:1.0);
+  \node at (58:1.32) {\scriptsize $\theta_{\max}$};
+  % larger angle to w2, faint
+  \draw[gray!55] (68:0.7) arc (68:142:0.7);
+  \node[align=center] at (-0.15,-0.7)
+    {\scriptsize\textbf{alignment}\\[-1pt]\scriptsize max cos};
+  % ===== right: norm gap =====
+  \begin{scope}[shift={(6.0,0)}]
+    \draw[thick] (-0.75,0) -- (0.9,0);
+    \draw[->, red!70!black, very thick] (-0.3,0) -- (-0.3,2.7)
+      node[above]{\scriptsize $\csid$};
+    \draw[->, gray!70!black, thick] (0.3,0) -- (0.3,1.6)
+      node[above]{\scriptsize $\csood$};
+    \draw[dashed, gray!55] (-0.3,2.7) -- (0.62,2.7);
+    \draw[dashed, gray!55] (0.3,1.6) -- (0.62,1.6);
+    \draw[<->] (0.62,1.6) -- (0.62,2.7) node[midway,right]{\scriptsize $\Delta$};
+    \node[rotate=90, anchor=south] at (-0.95,1.35) {\scriptsize $\E\norm{\g}$};
+    \node[align=center] at (0.1,-0.7)
+      {\scriptsize\textbf{norm gap}\\[-1pt]\scriptsize
+       $\Delta=\E\norm{\g}_{\csid}\!-\!\E\norm{\g}_{\csood}$};
+  \end{scope}
+\end{tikzpicture}
+\captionof{figure}{\textbf{What the geometric metrics measure.}
+\emph{Left:} each class weight $\mathbf{w}_k$ is the normal of a decision
+hyperplane; the \emph{max cosine} is the alignment of $\g(x)$ to the
+nearest one---here $\mathbf{w}_1$, at the small angle $\theta_{\max}$,
+while the angle to $\mathbf{w}_2$ is far larger. \emph{Right:} the norm
+gap $\Delta$ separates the mean \csid{} and \csood{} feature norms---the
+margin energy detection lives on.}
+\label{fig:metrics}
+\end{center}
 
 \subsection{Results}\label{sec:failure-results}
 
-\begin{figure}[t]
-  \centering
+\method{Tent} does its job: \csid{} accuracy rises, $0.77\!\to\!0.82$.
+Yet energy-score detectability falls monotonically, $\AUROC\,0.79\!\to\!
+0.69$ (Fig.~\ref{fig:tentfail}). Of the two levers of \S\ref{sec:predict},
+the diagnostics show which one carries the decay---and it is not the
+obvious one.
+
+% --- Tent failure figure (non-floating: stays right here) -----------
+\begin{center}
+  \includegraphics[width=0.72\textwidth]{TENT_failure.jpeg}
+  \captionof{figure}{\textbf{\method{Tent}'s open-set failure.} Over the
+  adaptation stream \csid{} accuracy rises ($0.77\!\to\!0.82$) while the
+  energy-score $\AUROC$ falls ($0.79\!\to\!0.69$): adaptation trades OOD
+  detectability for accuracy.}
+  \label{fig:tentfail}
+\end{center}
+
+\paragraph{The norm gap does not explain it.} Under covariate shift both
+populations are corrupted, so their norms drift together and the gap stays
+narrow; here it does not even close---the $L_2$ gap \emph{widens}
+($\Delta_2:0.36\!\to\!0.99$) and the $L_1$ gap is non-monotone, changing
+sign (Fig.~\ref{fig:geo1}). A wider gap can only \emph{help} energy
+detection, so the falling $\AUROC$ rules the norm out: it is a weak,
+unstable signal in this regime.
+
+% --- norms figure (non-floating: stays right here) ------------------
+\begin{center}
   \includegraphics[width=0.72\textwidth]{tent/gaussian_noise_svhn_c_open_seed0/geometry1.png}
-  \caption{\textbf{Norm inflation and gap collapse} under \method{Tent}.
+  \captionof{figure}{\textbf{Norms inflate; the gap is not the signal.}
   \emph{Left:} mean $L_2$ (top) and $L_1$ (bottom) feature norm per
   population (band $=$ IQR); both rise. \emph{Right:} the \csid$-$\csood{}
-  norm gap shrinks toward zero (and the $L_1$ gap goes negative) around
-  $t\!\approx\!25$ before over-shooting---the window where energy scoring
-  degrades most. The norm is not a clean signal in our open-set setting:
-  it moves under adaptation and even inverts.}
+  norm gap is small and non-monotone---the $L_2$ gap dips then
+  \emph{widens}, the $L_1$ gap turns negative---so the feature norm is an
+  unreliable detector under covariate shift.}
   \label{fig:geo1}
-\end{figure}
+\end{center}
 
-\begin{figure}[t]
-  \centering
+\paragraph{Alignment does.} The \csood{} max cosine climbs from $0.40$ to
+$0.57$, meeting the \csid{} level ($\approx0.56$): the alignment gap that
+separated the populations at $t{=}0$ collapses (Fig.~\ref{fig:geo2}, top).
+The cosine to the source-predicted class instead \emph{drops}
+($0.40\!\to\!0.29$), so the motion is angular \emph{relabelling}---each
+\csood{} feature rotates onto whichever weight is now nearest. Since the
+winning logit reads $\norm{\g}\cos\theta_{c^*}$ and the norm is inert, this
+closing of $\cos$ is what erases the \csid/\csood{} separation. \csood{}
+also drifts \emph{into} the source classes: the distance to the nearest
+frozen clean-ID centroid falls for \csood{} ($2.84\!\to\!2.17$) while it
+rises for the shifted \csid{} ($2.40\!\to\!2.85$)---adapted \csood{} ends up
+\emph{closer} to the clean prototypes than the real \csid{} is---and
+\csood{} confidence climbs to $0.89$ (Fig.~\ref{fig:geo2}, bottom).
+
+% --- alignment figure (non-floating: stays right here) --------------
+\begin{center}
   \includegraphics[width=0.72\textwidth]{tent/gaussian_noise_svhn_c_open_seed0/geometry2.png}
-  \caption{\textbf{Angular relabelling, not absorption} under
-  \method{Tent}. \emph{Top:} cosine to the source-predicted class (left)
-  drops for \csood{} while the max cosine over all class weights (right)
-  rises---\csood{} re-aligns to its nearest weight. \emph{Bottom:}
-  distance to the nearest frozen centroid stays flat (left) while \csood{}
-  max-softmax confidence climbs (right). No semantic absorption, only
-  confidence inflation that the entropy objective rewards.}
+  \captionof{figure}{\textbf{Angular relabelling and source absorption}
+  under \method{Tent}. \emph{Top:} cosine to the source-predicted class
+  (left) drops for \csood{} while the max cosine over all class weights
+  (right) rises to the \csid{} level---\csood{} re-aligns onto its nearest
+  weight. \emph{Bottom:} \csood{} distance to the nearest frozen centroid
+  falls (left), moving toward the clean source prototypes, while \csood{}
+  max-softmax confidence climbs (right). Adaptation makes novel inputs look
+  in-distribution.}
   \label{fig:geo2}
-\end{figure}
+\end{center}
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.72\textwidth]{tent/gaussian_noise_svhn_c_open_seed0/maxcos_dist_t0.png}
-  \caption{\textbf{The frozen alignment score separates the populations
-  at $t{=}0$.} Density of the max cosine to the class weights for \csid{}
-  (centre $\approx0.54$) versus \csood{} ($\approx0.40$). This statistic is
-  norm-invariant and, computed by a frozen model, stationary across $t$.}
+\paragraph{The signal that survives.} The discriminative quantity is
+alignment, and at $t{=}0$ the \emph{frozen} max cosine already separates
+the populations (Fig.~\ref{fig:maxcos}); norm-invariant and computed
+without adaptation, it stays stationary across $t$, immune to the very
+drift that corrupts the energy score it would replace---the foundation of
+\method{Cassano}.
+
+% --- frozen-score figure (non-floating: stays right here) -----------
+\begin{center}
+  \includegraphics[width=0.66\textwidth]{tent/gaussian_noise_svhn_c_open_seed0/maxcos_dist_t0.png}
+  \captionof{figure}{\textbf{The frozen alignment score separates the
+  populations at $t{=}0$.} Density of the max cosine to the class weights
+  for \csid{} (centre $\approx0.54$) versus \csood{} ($\approx0.40$). This
+  statistic is norm-invariant and, computed by a frozen model, stationary
+  across $t$.}
   \label{fig:maxcos}
-\end{figure}
-
-The diagnostics confirm the prediction of \S\ref{sec:predict} and add
-detail. \emph{(i) Norm inflation is uniform and the gap collapses}
-(Fig.~\ref{fig:geo1}): both populations' norms rise, the \csid$-$\csood{}
-gap shrinks toward zero around $t\!\approx\!25$, and the $L_1$ gap goes
-\emph{negative}---\csood{} features become larger in $L_1$ than \csid{}
-ones. The feature norm is therefore not a reliable signal in our setting:
-adaptation moves it and can invert it. \emph{(ii) Adaptation is angular
-relabelling, not absorption} (Fig.~\ref{fig:geo2}): the cosine to the
-source-predicted class drops for \csood{} while the max cosine over all
-weights rises; \csood{} samples are re-aligned to whichever weight is
-nearest, with confidence climbing, while centroid distances stay flat.
-
-Two facts survive the analysis and motivate the method. First, at $t{=}0$
-the \emph{frozen} max-cosine statistic already separates the populations
-(Fig.~\ref{fig:maxcos}). Second, this statistic is norm-invariant and,
-computed by a frozen model, stationary across $t$---immune to the very norm
-inflation that destroys energy scoring.
+\end{center}
 
 % =====================================================================
+\newpage
 \section{Our Proposal: \method{Cassano}}\label{sec:cassano}
 
 \subsection{A general framework}\label{sec:framework}
@@ -513,12 +705,12 @@ weights,
 s_i=\max_k \frac{\g(x_i)\cdot\mathbf{w}_k}
 {\norm{\g(x_i)}\,\norm{\mathbf{w}_k}} .
 \end{equation}
-This is the one statistic the analysis showed to be both discriminative at
-$t{=}0$ (Fig.~\ref{fig:maxcos}) and immune to adaptation: it is
-norm-invariant, so it ignores the inflation of finding~(i), and it is
-computed by a frozen model, so scores pooled across steps are unbiased---unlike
-the energy score, which is corrupted by the very adaptation it would
-supervise.
+This is the one statistic the analysis singled out as both discriminative
+at $t{=}0$ (Fig.~\ref{fig:maxcos}) and immune to adaptation: norm-invariant,
+so it ignores the norm inflation, and computed by a frozen model, so
+\csood{} cannot re-align under it. Scores pooled across steps are therefore
+unbiased---unlike the energy score, corrupted by the very adaptation it
+would supervise.
 
 \paragraph{Posterior: soft labelling.} Pool the scores seen up to step $t$,
 $\mathcal{S}_t=\bigcup_{\tau\le t}\{s_i\}_{i\in\mathcal{B}_\tau}$, and fit by
@@ -542,25 +734,26 @@ posterior gives the soft weight \eqref{eq:label},
 used as a weight, never optimised---avoiding the hard-threshold errors that
 the split-and-oppose recipe propagates into its objective.
 
-\paragraph{Objective: oppose on the failure lever.} The two findings
-dictate the two terms:
+\paragraph{Objective: recover a norm signal.} The analysis dictates the
+two terms:
 \begin{equation}\label{eq:loss}
 \mathcal{L}=\frac{1}{N}\sum_i
 \Big[\,\pi_{\text{ID}}(x_i)\,H(p_i)
 \;+\;\pi_{\text{OOD}}(x_i)\,\lambda\,\norm{\g(x_i)}_1\,\Big].
 \end{equation}
 On likely-\csid{} samples we minimise entropy---the useful part of
-\method{Tent}. On likely-\csood{} samples we penalise the $L_1$ feature
-norm. The shared affine update acts as a channel-wise \emph{diagonal
-scaling}, to first order
+\method{Tent}. The angular collapse itself we cannot undo, the head being
+frozen; instead we let the \emph{norm} carry the signal. On likely-\csood{}
+samples we penalise the $L_1$ feature norm: the shared affine update is a
+channel-wise \emph{diagonal scaling}, to first order
 \begin{equation}\label{eq:scaling}
 \gt(x)\approx\mathbf{D}_t\,\gz(x),
 \qquad
 \mathbf{D}_t=\diag(\bm{d}_t),\ \ \bm{d}_t>\bm{0},
 \end{equation}
-inflating every sample's norm; acting directly on this lever, rather than
-hoping a hard split prevents norm inflation, we suppress \csood{} norms and
-re-open the gap \eqref{eq:gap}. Since $H\le\ln 10\approx2.30$ while
+so this lever pushes \csood{} norms down and re-opens the gap
+\eqref{eq:gap} that covariate shift had left too weak for energy detection
+to use. Since $H\le\ln 10\approx2.30$ while
 $\norm{\g}_1\approx 28$--$30$, we set $\lambda\approx 1/30$ to balance the
 two terms. While the pool $\mathcal{S}_t$---and hence the mixture
 \eqref{eq:gmm}---is still small, the posterior is noisy; we damp it with a
@@ -622,9 +815,10 @@ AUROC \emph{above} the $t{=}0$ baseline to $0.94$, at negligible accuracy
 cost.
 
 \paragraph{Geometric reading.} The diagnostics of \S\ref{sec:failure}
-explain the gap. \method{Tent} inflates \csood{} norms and relabels them
-angularly; \method{Cassano}'s $L_1$ penalty keeps likely-\csood{} norms
-suppressed, restoring the energy gap the detector reads. Against the hard
+explain the gap. \method{Tent}'s damage is angular---\csood{} re-aligns and
+is absorbed into the source classes---while the norm gap is too weak to
+help; \method{Cassano}'s $L_1$ penalty drives likely-\csood{} norms down,
+manufacturing the norm gap the energy detector reads. Against the hard
 split-and-oppose family, \method{Cassano}'s advantage is twofold: its score
 is frozen and norm-invariant rather than corrupted by the adaptation it
 supervises, and its labelling is a soft posterior rather than a hard
@@ -635,16 +829,18 @@ instead of compounding split errors.
 \section{Conclusions and Discussion}
 
 Closed-set TTA and open-set robustness pull in opposite geometric
-directions: with a frozen head, entropy minimisation over BN affine
-parameters inflates feature norms uniformly, collapsing the energy gap that
-OOD detection relies on. The dangerous degree of freedom is the
-\emph{global} feature scale, and detectors that read it (energy, max-logit)
-are self-defeating under adaptation. We made this concrete with a
-time-tracking protocol and a geometric analysis, then used the analysis to
+directions. With a frozen head, entropy minimisation can only move the
+feature norm or its angle; under covariate shift the norm gap is already
+weak, so the damage is \emph{angular}---\csood{} inputs re-align onto the
+nearest class weight and are absorbed into the source classes, until the
+energy score can no longer separate them from \csid. We made this concrete
+with a time-tracking protocol and a geometric analysis, then used it to
 design \method{Cassano}, which supervises with a statistic the adaptation
-cannot corrupt (a frozen, norm-invariant alignment score) and acts on the
-exact lever the failure uses (the $L_1$ norm). \method{Cassano} reverses
-the collapse---AUROC $0.79\!\to\!0.94$---at no meaningful accuracy cost.
+cannot corrupt (a frozen, norm-invariant alignment score) and, unable to
+undo the angular collapse, restores detection on the lever it \emph{can}
+control---suppressing likely-\csood{} feature norm to re-open the gap.
+\method{Cassano} reverses the collapse---AUROC $0.79\!\to\!0.94$---at no
+meaningful accuracy cost.
 Natural next steps are the full corruption sweep, a second \csood{} source
 (Rome32), and a head-to-head against \method{UniEnt} under this protocol.
 
@@ -669,10 +865,6 @@ CVPR 2024.
 \emph{Understanding the Feature Norm for Out-of-Distribution Detection.}
 ICCV 2023.
 
-\bibitem{rrzs} L.\ Moschella et al.
-\emph{Relative Representations Enable Zero-Shot Latent Space
-Communication.} ICLR 2023.
-
 \bibitem{augmix} D.\ Hendrycks et al.
 \emph{AugMix: A Simple Data Processing Method to Improve Robustness and
 Uncertainty.} ICLR 2020.
@@ -681,5 +873,17 @@ Uncertainty.} ICLR 2020.
 \emph{RobustBench: A Standardized Adversarial Robustness Benchmark.}
 NeurIPS Datasets \& Benchmarks 2021.
 \end{thebibliography}
+
+% =====================================================================
+\appendix
+
+\section{Max Logit and Entropy}\label{app:maxlogit-entropy}
+% TODO: derive/show how the max logit relates to predictive entropy.
+
+\section{Entropy and OOD Measures}\label{app:entropy-ood}
+% TODO: relate entropy to the OOD detection measures (energy, norm, etc.).
+
+\section{Implementation Details}\label{app:impl}
+% TODO: architecture, hyperparameters, training/adaptation setup.
 
 \end{document}
