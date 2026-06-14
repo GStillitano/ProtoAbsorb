@@ -104,7 +104,7 @@ Split is done by `DataPools` using **stream seed** — same seed in Phase 1 and 
 │   │   └── stream.py     # build_stream() — frozen adaptation stream, sequential non-repeating
 │   ├── tta/
 │   │   ├── tent.py      # official TENT (github.com/DequanWang/tent), unchanged
-│   │   └── cassano.py   # Cassano: GmmScorer, cassano_loss, warmup, forward_and_adapt
+│   │   └── nova_tta.py   # NOVA-TTA: GmmScorer, nova_tta_loss, warmup, forward_and_adapt
 │   ├── metrics/
 │   │   ├── ood_scores.py   # energy_score, max_logit_score, max_softmax_score
 │   │   ├── ood_metrics.py  # auroc, fpr_at_tpr, oscr, h_score
@@ -120,7 +120,7 @@ Split is done by `DataPools` using **stream seed** — same seed in Phase 1 and 
 │   ├── reproduce_tent.py   # closed-set TENT reproduction (matches published protocol)
 │   ├── exp1_auroc.py       # compute AUROC + Acc → results.json
 │   ├── exp2_geometry.py    # compute geometry metrics → results.json
-│   ├── maxcos_dist.py      # maxcos score distribution at θ_t (Cassano's GMM input)
+│   ├── maxcos_dist.py      # maxcos score distribution at θ_t (NOVA-TTA's GMM input)
 │   ├── plot.py             # render figures from results JSON → figures/
 │   └── sweep.py            # run phase1_adapt over full sweep.yaml grid
 │
@@ -241,7 +241,7 @@ Partition fixed by seed — identical for every θ_t.
 
 ### 5.3 Method comparison
 
-TENT, BN Adapt, and Cassano all produce the same checkpoint format and are compared under the **identical Phase 2 protocol** (§5.2): each $\theta_t$ evaluated on the fixed diagnostic set $\mathcal{D}$. `exp1_auroc.py` overlays the AUROC + Acc trajectories of several streams in one figure. Cassano is the proposed fix; the expected result is AUROC held over the stream where TENT's collapses, at comparable csID accuracy.
+TENT, BN Adapt, and NOVA-TTA all produce the same checkpoint format and are compared under the **identical Phase 2 protocol** (§5.2): each $\theta_t$ evaluated on the fixed diagnostic set $\mathcal{D}$. `exp1_auroc.py` overlays the AUROC + Acc trajectories of several streams in one figure. NOVA-TTA is the proposed fix; the expected result is AUROC held over the stream where TENT's collapses, at comparable csID accuracy.
 
 ---
 
@@ -262,8 +262,8 @@ BN Adapt in Phase 1 = `with torch.no_grad(): model(x)`. One line in `phase1_adap
 **TENT `configure_model` does one thing `load_model` does not.**
 Re-enables `requires_grad_(True)` on BN (γ,β) so Adam can update them. Everything else is already set by `load_model`.
 
-**Cassano uses two model instances.**
-A frozen scorer (`load_model` + `requires_grad_(False)`, BN batch stats) and an adapted model (`cassano.configure_model`, same BN-affine-only policy as TENT). Only the adapted model is checkpointed. Score → GMM posterior → soft-labeled loss; see `cassano.md`.
+**NOVA-TTA uses two model instances.**
+A frozen scorer (`load_model` + `requires_grad_(False)`, BN batch stats) and an adapted model (`nova_tta.configure_model`, same BN-affine-only policy as TENT). Only the adapted model is checkpointed. Score → GMM posterior → soft-labeled loss; see `nova-tta.md`.
 
 **Phase 2 scripts share one diagnostic loader.**
 `src/data/diagnostic.load_diagnostic(meta, data_dir)` returns the held-out `(x_csid, y_csid, x_csood)` for a stream — used identically by `exp1_auroc`, `exp2_geometry`, and `maxcos_dist`.
@@ -330,22 +330,22 @@ uv run scripts/reproduce_tent.py
 # ── Single stream (use stream.yaml defaults or override via CLI) ─────────────
 uv run scripts/phase1_adapt.py --method tent
 uv run scripts/phase1_adapt.py --method bn_adapt
-uv run scripts/phase1_adapt.py --method cassano
+uv run scripts/phase1_adapt.py --method nova-tta
 
 # ── Compute metrics (output: results/{stream}/expN/results.json) ─────────────
 uv run scripts/exp1_auroc.py \
   --streams tent/gaussian_noise_svhn_c_open_seed0 \
             bn_adapt/gaussian_noise_svhn_c_open_seed0 \
-            cassano/gaussian_noise_svhn_c_open_seed0
+            nova-tta/gaussian_noise_svhn_c_open_seed0
 
 uv run scripts/exp2_geometry.py --stream tent/gaussian_noise_svhn_c_open_seed0
-uv run scripts/maxcos_dist.py   --stream cassano/gaussian_noise_svhn_c_open_seed0
+uv run scripts/maxcos_dist.py   --stream nova-tta/gaussian_noise_svhn_c_open_seed0
 
 # ── Render figures (output: figures/{stream}/expN_*.png) ─────────────────────
 uv run scripts/plot.py --exp 1 \
   --streams tent/gaussian_noise_svhn_c_open_seed0 \
             bn_adapt/gaussian_noise_svhn_c_open_seed0 \
-            cassano/gaussian_noise_svhn_c_open_seed0
+            nova-tta/gaussian_noise_svhn_c_open_seed0
 
 uv run scripts/plot.py --exp 2 --streams tent/gaussian_noise_svhn_c_open_seed0
 
@@ -358,16 +358,16 @@ uv run scripts/sweep.py --method tent
 ## 10. Workflow
 
 ```
-Phase 1: adapt tent / bn_adapt / cassano  → checkpoints/
+Phase 1: adapt tent / bn_adapt / nova-tta  → checkpoints/
         │
 Phase 2: exp1_auroc + exp2_geometry on each stream  → results/
         │
         ├── Experiment 1 — AUROC collapse under TENT, held by BN Adapt
         ├── Experiment 2 — norm inflation is the mechanism
-        └── Cassano — norm-suppressed fix; exp1 AUROC held at comparable Acc
+        └── NOVA-TTA — norm-suppressed fix; exp1 AUROC held at comparable Acc
                       (maxcos_dist inspects the GMM score split)
         │
 plot.py  → figures/   ·   sweep.py  → full corruption × seed grid
 ```
 
-Cassano method spec: `cassano.md`.
+NOVA-TTA method spec: `nova-tta.md`.

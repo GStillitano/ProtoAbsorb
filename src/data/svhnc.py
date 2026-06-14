@@ -6,6 +6,31 @@ from torchvision.datasets import SVHN
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# imagecorruptions targets old numpy/skimage. Restore aliases removed in
+# NumPy 2.0 (np.float_) before importing it.
+if not hasattr(np, "float_"):
+    np.float_ = np.float64
+
+# imagecorruptions calls skimage's gaussian() with the `multichannel` kwarg,
+# removed in scikit-image >= 0.21 (now `channel_axis`). Shim it so the package
+# keeps working without pinning an old skimage.
+import skimage.filters as _skfilters  # noqa: E402
+
+_orig_gaussian = _skfilters.gaussian
+
+
+def _gaussian_shim(*args, **kwargs):
+    if "multichannel" in kwargs:
+        multichannel = kwargs.pop("multichannel")
+        kwargs.setdefault("channel_axis", -1 if multichannel else None)
+    return _orig_gaussian(*args, **kwargs)
+
+
+_skfilters.gaussian = _gaussian_shim
+
+import imagecorruptions.corruptions as _ic_corruptions  # noqa: E402
+_ic_corruptions.gaussian = _gaussian_shim
+
 from imagecorruptions import corrupt  # noqa: E402
 
 

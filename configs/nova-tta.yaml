@@ -1,4 +1,4 @@
-# Cassano: maxcos-scored soft-labeled TTA.
+# NOVA-TTA: maxcos-scored soft-labeled TTA.
 #
 # Two models per step:
 #   scorer  = frozen θ_0 weights + BN batch-stat adapt, NO grad  → maxcos score

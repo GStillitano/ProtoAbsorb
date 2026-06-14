@@ -12,7 +12,7 @@ The standard fix (UniEnt, ROSETTA): split each batch into presumed csID/csOOD vi
 
 **This project's thesis:** the split-and-oppose recipe has a deeper failure mode. Even without split errors, entropy minimisation inflates feature norms uniformly for both csID and csOOD, collapsing the ID/OOD norm gap that energy-based scores rely on. OOD detection degrades monotonically over the stream regardless of split quality.
 
-**Goal:** (i) reproduce TENT, (ii) characterise the failure mode experimentally (Experiments 1–2), (iii) fix it with **Cassano** — a soft-labeled, norm-suppressing open-set TTA method.
+**Goal:** (i) reproduce TENT, (ii) characterise the failure mode experimentally (Experiments 1–2), (iii) fix it with **NOVA-TTA** — a soft-labeled, norm-suppressing open-set TTA method.
 
 ---
 
@@ -105,9 +105,9 @@ Expected signature of norm-dominant adaptation: norms rise, maxcos flat, distanc
 
 ---
 
-## 5. The fix — Cassano
+## 5. The fix — NOVA-TTA
 
-Experiments 1–2 establish the failure: entropy minimisation inflates feature norms for csID and csOOD alike, collapsing the energy-score gap. **Cassano** breaks the uniform inflation by giving csOOD samples the opposite objective — norm suppression — weighted by a soft ID/OOD posterior, so no hard split is required.
+Experiments 1–2 establish the failure: entropy minimisation inflates feature norms for csID and csOOD alike, collapsing the energy-score gap. **NOVA-TTA** breaks the uniform inflation by giving csOOD samples the opposite objective — norm suppression — weighted by a soft ID/OOD posterior, so no hard split is required.
 
 ### 5.1 Two models, one learner
 
@@ -133,6 +133,6 @@ $$L = \frac{1}{N}\sum_i \Big[\, P_\text{ID}(x_i)\,H(p_i) \;+\; P_\text{OOD}(x_i)
 
 An LR warmup $\mathrm{lr}_t = \mathrm{lr}\cdot r(t/K)$ shrinks early steps while the GMM pool is small and noisy.
 
-**Evaluation.** Cassano produces the same checkpoint format as TENT and is evaluated under the identical Phase 2 protocol — Experiments 1 and 2 run on Cassano streams unchanged. Expected signature: AUROC held (or improved) over the stream while csID accuracy tracks TENT.
+**Evaluation.** NOVA-TTA produces the same checkpoint format as TENT and is evaluated under the identical Phase 2 protocol — Experiments 1 and 2 run on NOVA-TTA streams unchanged. Expected signature: AUROC held (or improved) over the stream while csID accuracy tracks TENT.
 
-Full method and config: `cassano.md`, `configs/cassano.yaml`, `src/tta/cassano.py`.
+Full method and config: `nova-tta.md`, `configs/nova-tta.yaml`, `src/tta/nova_tta.py`.

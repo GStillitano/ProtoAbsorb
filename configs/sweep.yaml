@@ -16,4 +16,4 @@ corruption:
   - jpeg_compression
 open_set:     [true, false]
 csood_source: [svhn_c, rome32]
-seed:         [0, 1, 2]
+seed:         [0]

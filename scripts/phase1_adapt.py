@@ -12,9 +12,10 @@ from src.data.cifar10c import load_cifar10c_data
 from src.data.svhnc import load_svhn_c
 from src.data.pools import DataPools
 from src.data.stream import build_stream
-from src.tta import tent, cassano
+from src.tta import tent, nova_tta
 from src.model import classifier_weights
 from src.device import get_device
+from src.seed import set_seed
 
 
 def build_optimizer(name: str, params, lr: float, momentum: float = 0.9):
@@ -38,7 +39,7 @@ def _parse_bool(v: str | None) -> bool | None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method",       required=True, choices=["tent", "bn_adapt", "cassano"])
+    parser.add_argument("--method",       required=True, choices=["tent", "bn_adapt", "nova-tta"])
     parser.add_argument("--corruption",   default=None)
     parser.add_argument("--severity",     type=int,   default=None)
     parser.add_argument("--open_set",     type=str,   default=None,
@@ -54,9 +55,9 @@ def main():
 
     stream_cfg   = yaml.safe_load(Path("configs/stream.yaml").read_text())
     tent_cfg     = yaml.safe_load(Path("configs/tent.yaml").read_text())
-    cassano_cfg  = yaml.safe_load(Path("configs/cassano.yaml").read_text())
+    nova_tta_cfg  = yaml.safe_load(Path("configs/nova-tta.yaml").read_text())
     diag_cfg     = yaml.safe_load(Path("configs/diagnostic.yaml").read_text())
-    method_cfg   = cassano_cfg if args.method == "cassano" else tent_cfg
+    method_cfg   = nova_tta_cfg if args.method == "nova-tta" else tent_cfg
 
     corruption   = args.corruption   or stream_cfg["corruption"]
     severity     = args.severity     or stream_cfg["severity"]
@@ -67,6 +68,8 @@ def main():
     seed         = args.seed         if args.seed is not None else stream_cfg["seed"]
     lr           = args.lr           or method_cfg["lr"]
     device       = args.device       or get_device()
+
+    set_seed(seed)
 
     # ── Load data ─────────────────────────────────────────────────────────────
     x_csid, y_csid = load_cifar10c_data(corruption, severity, data_dir=args.data_dir)
@@ -110,9 +113,9 @@ def main():
         optimizer = torch.optim.Adam(params, lr=lr)
         tent_model = tent.Tent(model, optimizer, steps=1, episodic=False)
 
-    elif args.method == "cassano":
+    elif args.method == "nova-tta":
         # Adapted model: BN affine trainable.
-        cassano.configure_model(model)
+        nova_tta.configure_model(model)
         params, _ = tent.collect_params(model)
         optimizer = build_optimizer(method_cfg["optimizer"], params, lr,
                                     momentum=method_cfg.get("momentum", 0.9))
@@ -120,13 +123,14 @@ def main():
         scorer = load_model(data_dir=args.data_dir).to(device)
         scorer.requires_grad_(False)
         W_cpu  = classifier_weights(scorer).cpu()
-        gmm    = cassano.GmmScorer(
-            components   = cassano_cfg["gmm_components"],
-            accumulate   = cassano_cfg["gmm_accumulate"],
-            window       = cassano_cfg["gmm_window"],
-            warm_start   = cassano_cfg["gmm_warm_start"],
-            reg_covar    = cassano_cfg["gmm_reg_covar"],
-            id_component = cassano_cfg["id_component"],
+        gmm    = nova_tta.GmmScorer(
+            components   = nova_tta_cfg["gmm_components"],
+            accumulate   = nova_tta_cfg["gmm_accumulate"],
+            window       = nova_tta_cfg["gmm_window"],
+            warm_start   = nova_tta_cfg["gmm_warm_start"],
+            reg_covar    = nova_tta_cfg["gmm_reg_covar"],
+            id_component = nova_tta_cfg["id_component"],
+            random_state = seed,
         )
 
     # ── Phase 1 loop ──────────────────────────────────────────────────────────
@@ -135,15 +139,15 @@ def main():
 
         if args.method == "tent":
             tent_model(x_batch)
-        elif args.method == "cassano":
+        elif args.method == "nova-tta":
             # LR warmup: scale base lr by ramp(t/K), t is 1-indexed.
-            f = cassano.warmup_factor(t, cassano_cfg["warmup_K"],
-                                      cassano_cfg["warmup_shape"], cassano_cfg["warmup_exp_tau"])
+            f = nova_tta.warmup_factor(t, nova_tta_cfg["warmup_K"],
+                                      nova_tta_cfg["warmup_shape"], nova_tta_cfg["warmup_exp_tau"])
             for g in optimizer.param_groups:
                 g["lr"] = lr * f
-            cassano.forward_and_adapt(
+            nova_tta.forward_and_adapt(
                 x_batch, model, scorer, W_cpu, gmm, optimizer,
-                l1_weight=cassano_cfg["l1_weight"], device=device,
+                l1_weight=nova_tta_cfg["l1_weight"], device=device,
             )
         else:  # bn_adapt
             with torch.no_grad():

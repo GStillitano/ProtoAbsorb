@@ -34,7 +34,6 @@
 \DeclareMathOperator{\softmax}{softmax}
 \DeclareMathOperator*{\argmax}{arg\,max}
 \DeclareMathOperator{\AUROC}{AUROC}
-\DeclareMathOperator{\diag}{diag}
 \newcommand{\E}{\mathbb{E}}
 \newcommand{\Ind}{\mathbf{1}}
 \newcommand{\Energy}{E}
@@ -63,10 +62,11 @@ proceeds it stays accurate, but its ability to detect OOD inputs steadily
 degrades. We trace this to the geometry of the learned embeddings,
 tracking how their properties drift as the model adapts and showing that
 this drift is what erases the signal OOD detectors rely on. Guided by
-this analysis, we introduce \method{Cassano}, a TTA method that adapts
+this analysis, we introduce \method{NOVA-TTA}
+(Normal-Oriented Vector Alignment), a TTA method that adapts
 likely-in-distribution and likely-OOD inputs differently so that the
 model keeps improving under shift without losing the geometric signal
-that separates novel inputs. On CIFAR-10-C, \method{Cassano} preserves
+that separates novel inputs. On CIFAR-10-C, \method{NOVA-TTA} preserves
 OOD detection where \method{Tent} degrades, at no meaningful accuracy
 cost.
 \end{abstract}
@@ -74,11 +74,11 @@ cost.
 % --- teaser figure (non-floating: stays under the abstract) ----------
 \begin{center}
   \includegraphics[width=0.9\linewidth]{teaser.jpeg}
-  \captionof{figure}{\textbf{\method{Cassano} at a glance.} Each open-set
+  \captionof{figure}{\textbf{\method{NOVA-TTA} at a glance.} Each open-set
   batch $\mathcal{B}_t$ is scored by a \emph{frozen} model ($\theta_0$),
   whose norm-invariant alignment score separates \csid{} (high) from
   \csood{} (low) into a soft posterior $p(\mathrm{OOD}\mid x)$. That
-  posterior gates a split objective on the adapted model,
+  posterior gates a split loss on the adapted model,
   $\mathcal{L}=\mathcal{L}_{\csid}+\mathcal{L}_{\csood}$---entropy on
   likely-\csid, an $L_1$ feature-norm penalty on likely-\csood---whose
   gradient step yields $\theta_t$.}
@@ -120,7 +120,7 @@ classes until energy-based detection can no longer separate them from
   TTA degrades open-set performance: not the weak norm gap but an
   \emph{angular} collapse---\csood{} re-aligns and is absorbed into the
   source classes.
-  \item \textbf{Method.} \method{Cassano}, a soft open-set TTA framework
+  \item \textbf{Method.} \method{NOVA-TTA}, a soft open-set TTA framework
   derived from the analysis, which empirically reverses the AUROC
   collapse.
 \end{itemize}
@@ -588,9 +588,9 @@ margin energy detection lives on.}
 
 \subsection{Results}\label{sec:failure-results}
 
-\method{Tent} does its job: \csid{} accuracy rises, $0.77\!\to\!0.82$.
+\method{Tent} does its job: \csid{} accuracy rises, $0.77\!\to\!0.81$.
 Yet energy-score detectability falls monotonically, $\AUROC\,0.79\!\to\!
-0.69$ (Fig.~\ref{fig:tentfail}). Of the two levers of \S\ref{sec:predict},
+0.65$ (Fig.~\ref{fig:tentfail}). Of the two levers of \S\ref{sec:predict},
 the diagnostics show which one carries the decay---and it is not the
 obvious one.
 
@@ -598,8 +598,8 @@ obvious one.
 \begin{center}
   \includegraphics[width=0.72\textwidth]{TENT_failure.jpeg}
   \captionof{figure}{\textbf{\method{Tent}'s open-set failure.} Over the
-  adaptation stream \csid{} accuracy rises ($0.77\!\to\!0.82$) while the
-  energy-score $\AUROC$ falls ($0.79\!\to\!0.69$): adaptation trades OOD
+  adaptation stream \csid{} accuracy rises ($0.77\!\to\!0.81$) while the
+  energy-score $\AUROC$ falls ($0.79\!\to\!0.65$): adaptation trades OOD
   detectability for accuracy.}
   \label{fig:tentfail}
 \end{center}
@@ -607,8 +607,8 @@ obvious one.
 \paragraph{The norm gap does not explain it.} Under covariate shift both
 populations are corrupted, so their norms drift together and the gap stays
 narrow; here it does not even close---the $L_2$ gap \emph{widens}
-($\Delta_2:0.36\!\to\!0.99$) and the $L_1$ gap is non-monotone, changing
-sign (Fig.~\ref{fig:geo1}). A wider gap can only \emph{help} energy
+($\Delta_2:0.33\!\to\!0.56$) and the $L_1$ gap is non-monotone, deepening
+then recovering but staying negative (Fig.~\ref{fig:geo1}). A wider gap can only \emph{help} energy
 detection, so the falling $\AUROC$ rules the norm out: it is a weak,
 unstable signal in this regime.
 
@@ -619,22 +619,22 @@ unstable signal in this regime.
   \emph{Left:} mean $L_2$ (top) and $L_1$ (bottom) feature norm per
   population (band $=$ IQR); both rise. \emph{Right:} the \csid$-$\csood{}
   norm gap is small and non-monotone---the $L_2$ gap dips then
-  \emph{widens}, the $L_1$ gap turns negative---so the feature norm is an
+  \emph{widens}, the $L_1$ gap stays negative---so the feature norm is an
   unreliable detector under covariate shift.}
   \label{fig:geo1}
 \end{center}
 
 \paragraph{Alignment does.} The \csood{} max cosine climbs from $0.40$ to
-$0.57$, meeting the \csid{} level ($\approx0.56$): the alignment gap that
+$0.57$, meeting the \csid{} level ($\approx0.57$): the alignment gap that
 separated the populations at $t{=}0$ collapses (Fig.~\ref{fig:geo2}, top).
 The cosine to the source-predicted class instead \emph{drops}
-($0.40\!\to\!0.29$), so the motion is angular \emph{relabelling}---each
+($0.40\!\to\!0.27$), so the motion is angular \emph{relabelling}---each
 \csood{} feature rotates onto whichever weight is now nearest. Since the
 winning logit reads $\norm{\g}\cos\theta_{c^*}$ and the norm is inert, this
 closing of $\cos$ is what erases the \csid/\csood{} separation. \csood{}
 also drifts \emph{into} the source classes: the distance to the nearest
-frozen clean-ID centroid falls for \csood{} ($2.84\!\to\!2.17$) while it
-rises for the shifted \csid{} ($2.40\!\to\!2.85$)---adapted \csood{} ends up
+frozen clean-ID centroid falls for \csood{} ($2.84\!\to\!2.36$) while it
+rises for the shifted \csid{} ($2.39\!\to\!2.70$)---adapted \csood{} ends up
 \emph{closer} to the clean prototypes than the real \csid{} is---and
 \csood{} confidence climbs to $0.89$ (Fig.~\ref{fig:geo2}, bottom).
 
@@ -657,7 +657,7 @@ alignment, and at $t{=}0$ the \emph{frozen} max cosine already separates
 the populations (Fig.~\ref{fig:maxcos}); norm-invariant and computed
 without adaptation, it stays stationary across $t$, immune to the very
 drift that corrupts the energy score it would replace---the foundation of
-\method{Cassano}.
+\method{NOVA-TTA}.
 
 % --- frozen-score figure (non-floating: stays right here) -----------
 \begin{center}
@@ -672,45 +672,118 @@ drift that corrupts the energy score it would replace---the foundation of
 
 % =====================================================================
 \newpage
-\section{Our Proposal: \method{Cassano}}\label{sec:cassano}
+\section{Our Proposal: \method{NOVA-TTA}}\label{sec:nova-tta}
 
 \subsection{A general framework}\label{sec:framework}
 
-We cast open-set TTA as a pipeline
-\[
-s(x)\;\longrightarrow\;\pi(\mathrm{OOD}\mid x)\;\longrightarrow\;
-w_i\;\longrightarrow\;\mathcal{L}.
-\]
-A score $s(x)$ yields a posterior $\pi(\mathrm{OOD}\mid x)$, which is turned
-into a per-sample membership weight---hard or soft---
+Most open-set TTA methods instantiate one pipeline
+(Fig.~\ref{fig:framework}): each sample gets a \emph{score}, the batch of
+scores becomes a per-sample OOD \emph{posterior}, the posterior a
+\emph{labelling}, the labelling the adaptation \emph{loss},
+$s(x)\to\pi(\mathrm{OOD}\mid x)\to\ell_i\to\mathcal{L}(\ell)$. A method is
+fixed by four choices: score, posterior, labelling, and loss.
+
+% --- framework pipeline figure (non-floating: stays right here) ------
+\begin{center}
+\begin{tikzpicture}[>=stealth,
+   stage/.style={draw, rounded corners=2pt, fill=blue!6, font=\small,
+                 minimum height=0.95cm, minimum width=2.1cm, align=center}]
+  \node[stage] (s)    at (0,0)    {score\\[1pt]$s(x)$};
+  \node[stage] (pi)   at (3.5,0)  {posterior\\[1pt]$\pi(\mathrm{OOD}\mid x)$};
+  \node[stage] (lab)  at (7.0,0)  {labelling\\[1pt]$\ell_i$};
+  \node[stage] (loss) at (10.1,0) {loss\\[1pt]$\mathcal{L}(\ell)$};
+  \draw[->] (s)   -- (pi)  node[midway, above, font=\scriptsize, gray]{GMM};
+  \draw[->] (pi)  -- (lab) node[midway, above, font=\scriptsize, gray]{hard/soft};
+  \draw[->] (lab) -- (loss);
+  \node[gray, font=\scriptsize, anchor=north] at (0,-0.72) {frozen $\theta_0$};
+\end{tikzpicture}
+\captionof{figure}{\textbf{The open-set TTA pipeline.} Score, OOD posterior,
+labelling, loss; methods differ only in these four choices.}
+\label{fig:framework}
+\end{center}
+
+\paragraph{Score.} Each sample $x_i\in\mathcal{B}_t$ gets a scalar
+$s_i=s(x_i)$ separating \csid{} from \csood. This stage is the freest: any
+\csood-ranking statistic is admissible---confidence, entropy, energy,
+feature norm, prototype alignment---so it holds the widest design space. The
+score is \emph{usually read off the original, un-adapted weights} $\theta_0$,
+not the current iterate $\theta_t$: $\theta_0$ retains the OOD-detection
+power that adaptation erodes (\S\ref{sec:failure}), so a frozen scorer stays
+informative and comparable along the stream rather than being corrupted by
+the adaptation it supervises.
+
+\paragraph{Posterior.} A two-component Gaussian mixture (one \csid, one
+\csood) is fitted by EM to the batch scores $\{s_i\}_{i\in\mathcal{B}_t}$;
+Bayes' rule then gives each sample a posterior
+$\pi(\mathrm{OOD}\mid x_i)\in[0,1]$.
+
+\paragraph{Labelling.} The posterior is converted into the membership
+$\ell_i$ the loss acts on, either \emph{hard} or \emph{soft},
 \begin{equation}\label{eq:label}
-w_i=
+\ell_i=
 \begin{cases}
 \Ind\!\big[\pi(\mathrm{OOD}\mid x_i)>\tau\big] & \text{(hard split)},\\[3pt]
-\pi(\mathrm{OOD}\mid x_i)\in[0,1] & \text{(soft weight)},
+\pi(\mathrm{OOD}\mid x_i)\in[0,1] & \text{(soft weight)}.
 \end{cases}
 \end{equation}
-and $w_i$ gates an objective that adapts on \csid{} and opposes on \csood.
-\method{UniEnt} instantiates this with an energy score and a hard split;
-\method{Cassano} with a frozen alignment score and a soft weight, each
-choice dictated by \S\ref{sec:failure}.
+The choice sets how aggressively the loss commits per sample: a hard split
+applies the \csid/\csood{} loss terms at full strength across $\tau$ but
+propagates every misassignment, while a soft weight scales each contribution
+by its posterior, hedging under uncertainty. Either way $\ell_i$ gates a loss
+that adapts on likely-\csid{} and opposes on likely-\csood.
 
+\paragraph{\method{UniEnt} and \method{UniEnt+}.} Both score by
+\emph{alignment to the source class centroids} on the frozen network and fit
+the ID/OOD mixture as above; they differ only in labelling---\method{UniEnt}
+hard ($\ell_i\in\{0,1\}$), \method{UniEnt+} soft ($\ell_i\in[0,1]$).
+
+\newpage
 \subsection{Method}\label{sec:method}
 
+% --- NOVA-TTA-instance figure: pipeline blocks + concrete choices -----
+\begin{center}
+\begin{tikzpicture}[>=stealth,
+   stage/.style={draw, rounded corners=2pt, fill=blue!6, font=\small,
+                 minimum height=0.95cm, minimum width=2.1cm, align=center},
+   choice/.style={font=\scriptsize, align=center, text width=2.7cm}]
+  \node[stage] (s)    at (0,0)    {score\\[1pt]$s(x)$};
+  \node[stage] (pi)   at (3.5,0)  {posterior\\[1pt]$\pi(\mathrm{OOD}\mid x)$};
+  \node[stage] (lab)  at (7.0,0)  {labelling\\[1pt]$\ell_i$};
+  \node[stage] (loss) at (10.1,0) {loss\\[1pt]$\mathcal{L}(\ell)$};
+  \draw[->] (s)   -- (pi);
+  \draw[->] (pi)  -- (lab);
+  \draw[->] (lab) -- (loss);
+  % NOVA-TTA's concrete choice per stage
+  \node[choice] (cs)    at (0,-1.75)    {frozen max cosine\\ to class weights};
+  \node[choice] (cpi)   at (3.5,-1.75)  {EM GMM over\\ pooled scores};
+  \node[choice] (clab)  at (7.0,-1.75)  {soft weight\\ $\pi(\mathrm{OOD}\mid x_i)$};
+  \node[choice] (closs) at (10.1,-1.75) {entropy (ID) $+$\\ $L_1$ penalty (OOD)};
+  \draw[->] (s)    -- (cs);
+  \draw[->] (pi)   -- (cpi);
+  \draw[->] (lab)  -- (clab);
+  \draw[->] (loss) -- (closs);
+\end{tikzpicture}
+\captionof{figure}{\textbf{\method{NOVA-TTA} as an instance of the pipeline.}
+The stages of Fig.~\ref{fig:framework} with each choice made concrete: a
+frozen, norm-invariant alignment score; a two-component GMM fitted by EM over
+scores pooled along the stream; a \emph{soft} labelling
+$\ell_i=\pi(\mathrm{OOD}\mid x_i)$; and a split loss---entropy on
+likely-\csid, an $L_1$ feature-norm penalty on likely-\csood.}
+\label{fig:nova-tta}
+\end{center}
+
 \paragraph{Score: frozen, norm-invariant alignment.} A \emph{frozen} scorer
-(original weights $\theta_0$, BN batch statistics, no gradient) runs
-alongside the adapted model and produces the max cosine to the class
-weights,
+(original weights $\theta_0$, no gradient) produces the max cosine to the
+class weights,
 \begin{equation}\label{eq:score}
 s_i=\max_k \frac{\g(x_i)\cdot\mathbf{w}_k}
 {\norm{\g(x_i)}\,\norm{\mathbf{w}_k}} .
 \end{equation}
-This is the one statistic the analysis singled out as both discriminative
-at $t{=}0$ (Fig.~\ref{fig:maxcos}) and immune to adaptation: norm-invariant,
-so it ignores the norm inflation, and computed by a frozen model, so
-\csood{} cannot re-align under it. Scores pooled across steps are therefore
-unbiased---unlike the energy score, corrupted by the very adaptation it
-would supervise.
+It is the one statistic the analysis singled out as both discriminative at
+$t{=}0$ (Fig.~\ref{fig:maxcos}) and immune to adaptation: norm-invariant, so
+it ignores norm inflation, and frozen, so \csood{} cannot re-align under it.
+Scores stay stationary across the stream---unlike the energy score, corrupted
+by the very adaptation it would supervise.
 
 \paragraph{Posterior: soft labelling.} Pool the scores seen up to step $t$,
 $\mathcal{S}_t=\bigcup_{\tau\le t}\{s_i\}_{i\in\mathcal{B}_\tau}$, and fit by
@@ -721,43 +794,40 @@ p(s)=\sum_{c\in\{\mathrm{id},\mathrm{ood}\}}
 \qquad
 \mu_{\mathrm{id}}>\mu_{\mathrm{ood}} ,
 \end{equation}
-the higher-mean component being ID. Because the scorer is frozen, the
-score law is stationary across $t$, so pooling in \eqref{eq:gmm} is
-unbiased and the fit sharpens as $|\mathcal{S}_t|$ grows. The detached Bayes
-posterior gives the soft weight \eqref{eq:label},
+the higher-mean component being ID. Frozen scores are stationary, so the
+pool is unbiased and the fit sharpens as $|\mathcal{S}_t|$ grows. The detached
+Bayes posterior is the soft weight \eqref{eq:label},
 \begin{equation}\label{eq:post}
 \pi(\mathrm{OOD}\mid x_i)=
 \frac{\pi_{\mathrm{ood}}\,\mathcal{N}(s_i\mid\mu_{\mathrm{ood}},\sigma_{\mathrm{ood}}^2)}
 {\sum_c \pi_c\,\mathcal{N}(s_i\mid\mu_c,\sigma_c^2)},
 \qquad \pi_{\mathrm{ID}}=1-\pi_{\mathrm{OOD}},
 \end{equation}
-used as a weight, never optimised---avoiding the hard-threshold errors that
-the split-and-oppose recipe propagates into its objective.
+never optimised---avoiding the hard-threshold errors the split-and-oppose
+recipe propagates into its loss.
 
-\paragraph{Objective: recover a norm signal.} The analysis dictates the
-two terms:
+\paragraph{Loss: ID and OOD terms.} The loss is a soft-weighted sum of a
+\csid{} term and a \csood{} term,
 \begin{equation}\label{eq:loss}
 \mathcal{L}=\frac{1}{N}\sum_i
 \Big[\,\pi_{\text{ID}}(x_i)\,H(p_i)
 \;+\;\pi_{\text{OOD}}(x_i)\,\lambda\,\norm{\g(x_i)}_1\,\Big].
 \end{equation}
-On likely-\csid{} samples we minimise entropy---the useful part of
-\method{Tent}. The angular collapse itself we cannot undo, the head being
-frozen; instead we let the \emph{norm} carry the signal. On likely-\csood{}
-samples we penalise the $L_1$ feature norm: the shared affine update is a
-channel-wise \emph{diagonal scaling}, to first order
-\begin{equation}\label{eq:scaling}
-\gt(x)\approx\mathbf{D}_t\,\gz(x),
-\qquad
-\mathbf{D}_t=\diag(\bm{d}_t),\ \ \bm{d}_t>\bm{0},
-\end{equation}
-so this lever pushes \csood{} norms down and re-opens the gap
-\eqref{eq:gap} that covariate shift had left too weak for energy detection
-to use. Since $H\le\ln 10\approx2.30$ while
-$\norm{\g}_1\approx 28$--$30$, we set $\lambda\approx 1/30$ to balance the
-two terms. While the pool $\mathcal{S}_t$---and hence the mixture
-\eqref{eq:gmm}---is still small, the posterior is noisy; we damp it with a
-learning-rate warm-up over the first $K$ steps,
+The \csid{} term is \method{Tent}'s entropy minimisation weighted by
+$\pi_{\text{ID}}$, so it acts mostly on likely-\csid{} and barely on
+likely-\csood: it raises \csid{} accuracy while---unlike \method{Tent} on the
+full batch---no longer sharpening \csood, and so stops degrading the OOD
+signal further. The \csood{} term attacks a signal that is weak from the
+start: covariate shift flattens the feature norm, so even the \emph{frozen}
+energy AUROC is limited for lack of a norm gap. The $L_1$ penalty drives
+likely-\csood{} norms down, manufacturing the gap \eqref{eq:gap} and
+recovering OOD separation beyond what the frozen model alone gives.
+
+\paragraph{Warm-up.} The score pool $\mathcal{S}_t$ grows as batches
+accumulate, so early on the mixture \eqref{eq:gmm} is fit on few scores and
+the posterior can sit far from the true membership. To stabilise adaptation
+we trust the loss only gradually, ramping the learning rate over the first
+$K$ steps,
 \begin{equation}\label{eq:warmup}
 \eta_t=\eta\cdot r(t/K),\qquad
 r(u)=
@@ -769,61 +839,119 @@ u & \text{linear},\\[2pt]
 \qquad r(u\!\ge\!1)=1 .
 \end{equation}
 
-\subsection{Results: \method{Cassano} vs.\ \method{Tent}}\label{sec:results}
+\subsection{Results: \method{NOVA-TTA} vs.\ \method{Tent}}\label{sec:results}
 
-\begin{figure}[t]
-  \centering
+\paragraph{AUROC vs.\ accuracy.} Figure~\ref{fig:exp1} makes the trade-off
+explicit. \method{Tent} buys
+$+4$pt accuracy with a $-14$pt AUROC loss: the objectives are orthogonal,
+and entropy minimisation optimises accuracy at the direct expense of
+separability. The $t{=}0$ baseline---BN statistics adapted, no gradient
+step---already sits at $0.79$, so the entire decay over the stream is due to
+the persistent $(\bm{\gamma},\bm{\beta})$ affine drift. \method{NOVA-TTA} inverts
+the trend: penalising \csood{} norm not only halts the collapse but drives
+AUROC \emph{above} the $t{=}0$ baseline to $0.93$, at negligible accuracy
+cost.
+
+% --- main result figure (non-floating: stays right after this paragraph) ---
+\begin{center}
   \includegraphics[width=0.92\textwidth]{gaussian_noise_svhn_c_open_seed0/exp1_auroc.png}
-  \caption{\textbf{Open-set TTA over the stream}
+  \captionof{figure}{\textbf{Open-set TTA over the stream}
   (CIFAR-10-C \texttt{gaussian\_noise} vs.\ SVHN-C, $T{=}80$).
   \emph{Left:} energy-score AUROC. \method{Tent} (orange) degrades
-  monotonically $0.79\!\to\!0.69$; \emph{BN Adapt} (blue) is flat at
-  $0.79$, isolating the persistent affine update as the cause;
-  \method{Cassano} (green) \emph{rises} $0.79\!\to\!0.94$. \emph{Right:}
-  \csid{} accuracy. All adapting methods reach $\approx0.80$--$0.83$, so
-  \method{Cassano} recovers detectability without sacrificing accuracy.}
+  monotonically $0.79\!\to\!0.65$ from the $t{=}0$ baseline ($0.79$, BN
+  stats adapted, no gradient step), isolating the persistent affine update
+  as the cause; \method{NOVA-TTA} (green) \emph{rises} $0.79\!\to\!0.93$.
+  \emph{Right:}
+  \csid{} accuracy. All adapting methods reach $\approx0.80$--$0.82$, so
+  \method{NOVA-TTA} recovers detectability without sacrificing accuracy.}
   \label{fig:exp1}
-\end{figure}
+\end{center}
+
+\paragraph{How \method{NOVA-TTA} reshapes embeddings.} The time-tracking
+protocol of \S\ref{sec:protocol}, run on \method{NOVA-TTA}'s iterates, reads
+the same norm and alignment geometry as for \method{Tent}
+(\S\ref{sec:failure-results}); on both axes \method{NOVA-TTA} moves the
+opposite way.
+
+\paragraph{Norm.} The $L_1$ penalty drives likely-\csood{} norms down while
+\csid{} norms hold, re-opening the gap energy detection reads
+(Fig.~\ref{fig:nova-tta-geo1}): the $L_2$ gap widens monotonically
+($0.35\!\to\!2.75$) and the $L_1$ gap turns from negative to strongly positive
+($-1.9\!\to\!12.1$), where \method{Tent} left both weak (Fig.~\ref{fig:geo1}).
+
+% --- NOVA-TTA norms figure (non-floating) ----------------------------
+\begin{center}
+  \includegraphics[width=0.72\textwidth]{nova-tta/gaussian_noise_svhn_c_open_seed0/geometry1.png}
+  \captionof{figure}{\textbf{\method{NOVA-TTA} re-opens the norm gap.}
+  \csood{} norms fall, \csid{} holds; the \csid$-$\csood{} gap grows in both
+  $L_2$ and $L_1$, opposite to \method{Tent}.}
+  \label{fig:nova-tta-geo1}
+\end{center}
+
+\paragraph{Alignment.} A frozen head cannot undo the angular collapse, so
+\csood{} still re-aligns, but mildly (max cosine $0.40\!\to\!0.48$, against
+\method{Tent}'s $0.57$). Crucially the source absorption is halted
+(Fig.~\ref{fig:nova-tta-geo2}): \csood{} stays far from the frozen centroids
+($2.83\!\to\!2.87$, against \method{Tent}'s $2.36$) and its confidence falls
+($0.70\!\to\!0.63$, against \method{Tent}'s $0.89$). Novel inputs remain
+detectable by norm and un-absorbed by the source classes.
+
+% --- NOVA-TTA alignment figure (non-floating) ------------------------
+\begin{center}
+  \includegraphics[width=0.72\textwidth]{nova-tta/gaussian_noise_svhn_c_open_seed0/geometry2.png}
+  \captionof{figure}{\textbf{Absorption prevented under \method{NOVA-TTA}.}
+  \csood{} re-aligns only mildly, stays far from the source centroids, and
+  grows less confident---not absorbed into the source classes.}
+  \label{fig:nova-tta-geo2}
+\end{center}
+
+\paragraph{Across corruptions.} We repeat the open-set protocol on all fifteen
+CIFAR-10-C corruptions, with SVHN-C as the \csood{} source ($T{=}80$;
+Table~\ref{tab:corruptions}). \method{NOVA-TTA} raises the energy-score AUROC on
+\emph{every} corruption (mean $+0.10$, range $+0.05$ to $+0.16$) while \csid{}
+accuracy also rises (mean $+0.03$): detection and accuracy improve together,
+with no trade-off. Gains are largest on the noise and bright/weather
+corruptions (\texttt{snow}, \texttt{gaussian\_noise}, \texttt{brightness},
+\texttt{shot\_noise}, \texttt{frost}: $+0.12$--$0.16$) and smallest on
+the blurs. The one hard case is \texttt{glass\_blur} ($0.63\!\to\!0.70$): there
+the frozen alignment score barely separates the populations, so the norm gap
+\method{NOVA-TTA} manufactures has little to build on---yet even there AUROC
+rises and accuracy does not drop.
 
 \begin{table}[t]
   \centering
   \small
-  \caption{Endpoints of the trajectories in Fig.~\ref{fig:exp1}
-  ($t{=}0\to t{=}80$). AUROC of the energy score; accuracy on
-  $\D_{\csid}$.}
-  \label{tab:endpoints}
+  \caption{\method{NOVA-TTA} across the fifteen CIFAR-10-C corruptions
+  (SVHN-C as \csood, $T{=}80$): energy-score AUROC and \csid{} accuracy,
+  start$\to$end of the stream.}
+  \label{tab:corruptions}
   \begin{tabular}{lcc}
     \toprule
-    Method & AUROC ($0\to T$) & Acc ($0\to T$)\\
+    Corruption & AUROC ($0\to T$) & Acc ($0\to T$)\\
     \midrule
-    BN Adapt          & $0.79\to0.79$ & $0.77\to0.77$\\
-    \method{Tent}     & $0.79\to\mathbf{0.69}$ & $0.77\to0.83$\\
-    \method{Cassano}  & $0.78\to\mathbf{0.94}$ & $0.77\to0.80$\\
+    \texttt{brightness}         & $0.80\to0.94$ & $0.90\to0.92$\\
+    \texttt{contrast}           & $0.85\to0.91$ & $0.88\to0.90$\\
+    \texttt{defocus\_blur}      & $0.80\to0.85$ & $0.84\to0.87$\\
+    \texttt{elastic\_transform} & $0.82\to0.92$ & $0.78\to0.82$\\
+    \texttt{fog}                & $0.91\to0.96$ & $0.84\to0.88$\\
+    \texttt{frost}              & $0.74\to0.87$ & $0.83\to0.86$\\
+    \texttt{gaussian\_noise}    & $0.78\to0.93$ & $0.77\to0.81$\\
+    \texttt{glass\_blur}        & $0.63\to0.70$ & $0.70\to0.73$\\
+    \texttt{impulse\_noise}     & $0.74\to0.85$ & $0.70\to0.76$\\
+    \texttt{jpeg\_compression}  & $0.83\to0.92$ & $0.79\to0.82$\\
+    \texttt{motion\_blur}       & $0.80\to0.88$ & $0.86\to0.88$\\
+    \texttt{pixelate}           & $0.89\to0.95$ & $0.83\to0.86$\\
+    \texttt{shot\_noise}        & $0.83\to0.96$ & $0.80\to0.84$\\
+    \texttt{snow}               & $0.74\to0.89$ & $0.84\to0.87$\\
+    \texttt{zoom\_blur}         & $0.82\to0.92$ & $0.90\to0.90$\\
+    \midrule
+    mean                        & $0.80\to0.90$ & $0.82\to0.85$\\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\paragraph{AUROC vs.\ accuracy.} Figure~\ref{fig:exp1} and
-Table~\ref{tab:endpoints} make the trade-off explicit. \method{Tent} buys
-$+6$pt accuracy with a $-10$pt AUROC loss: the objectives are orthogonal,
-and entropy minimisation optimises accuracy at the direct expense of
-separability. \emph{BN Adapt} isolates the cause---with no gradient step
-its AUROC is perfectly flat, so the degradation is entirely due to the
-persistent $(\bm{\gamma},\bm{\beta})$ affine drift. \method{Cassano} inverts
-the trend: penalising \csood{} norm not only halts the collapse but drives
-AUROC \emph{above} the $t{=}0$ baseline to $0.94$, at negligible accuracy
-cost.
-
-\paragraph{Geometric reading.} The diagnostics of \S\ref{sec:failure}
-explain the gap. \method{Tent}'s damage is angular---\csood{} re-aligns and
-is absorbed into the source classes---while the norm gap is too weak to
-help; \method{Cassano}'s $L_1$ penalty drives likely-\csood{} norms down,
-manufacturing the norm gap the energy detector reads. Against the hard
-split-and-oppose family, \method{Cassano}'s advantage is twofold: its score
-is frozen and norm-invariant rather than corrupted by the adaptation it
-supervises, and its labelling is a soft posterior rather than a hard
-threshold, so \eqref{eq:loss} degrades gracefully under split uncertainty
-instead of compounding split errors.
+\noindent\emph{To do:} the sweep uses SVHN-C as the only \csood{} source; the
+same evaluation with Rome32 as \csood{} remains to be run.
 
 % =====================================================================
 \section{Conclusions and Discussion}
@@ -835,14 +963,14 @@ weak, so the damage is \emph{angular}---\csood{} inputs re-align onto the
 nearest class weight and are absorbed into the source classes, until the
 energy score can no longer separate them from \csid. We made this concrete
 with a time-tracking protocol and a geometric analysis, then used it to
-design \method{Cassano}, which supervises with a statistic the adaptation
+design \method{NOVA-TTA}, which supervises with a statistic the adaptation
 cannot corrupt (a frozen, norm-invariant alignment score) and, unable to
 undo the angular collapse, restores detection on the lever it \emph{can}
 control---suppressing likely-\csood{} feature norm to re-open the gap.
-\method{Cassano} reverses the collapse---AUROC $0.79\!\to\!0.94$---at no
+\method{NOVA-TTA} reverses the collapse---AUROC $0.79\!\to\!0.93$---at no
 meaningful accuracy cost.
-Natural next steps are the full corruption sweep, a second \csood{} source
-(Rome32), and a head-to-head against \method{UniEnt} under this protocol.
+Natural next steps are a second \csood{} source (Rome32) and a head-to-head
+against \method{UniEnt} under this protocol.
 
 % =====================================================================
 \begin{thebibliography}{9}
@@ -877,11 +1005,14 @@ NeurIPS Datasets \& Benchmarks 2021.
 % =====================================================================
 \appendix
 
-\section{Max Logit and Entropy}\label{app:maxlogit-entropy}
-% TODO: derive/show how the max logit relates to predictive entropy.
-
-\section{Entropy and OOD Measures}\label{app:entropy-ood}
-% TODO: relate entropy to the OOD detection measures (energy, norm, etc.).
+\section{Deferred Derivations}\label{app:theory}
+The following analyses are planned but not yet included:
+\begin{itemize}\itemsep2pt
+  \item \textbf{Max logit and entropy.} How the winning logit
+  $\psi_{c^*}(x)$ relates to the predictive entropy $H(p(x))$.
+  \item \textbf{Entropy and OOD measures.} How $H(p(x))$ relates to the OOD
+  detection scores (energy, feature norm, confidence).
+\end{itemize}
 
 \section{Implementation Details}\label{app:impl}
 % TODO: architecture, hyperparameters, training/adaptation setup.

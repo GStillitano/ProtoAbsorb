@@ -1,4 +1,4 @@
-"""Cassano loss: soft-labeled entropy / L1-norm penalty.
+"""NOVA-TTA loss: soft-labeled entropy / L1-norm penalty.
 
 Per sample, a soft OOD posterior p_ood (from the GMM on maxcos scores) splits the
 objective between two regimes:
@@ -36,7 +36,7 @@ def feature_l1(feat: torch.Tensor) -> torch.Tensor:
     return feat.abs().sum(dim=-1)
 
 
-def cassano_loss(
+def nova_tta_loss(
     logits: torch.Tensor,
     feat: torch.Tensor,
     p_ood: torch.Tensor,
@@ -73,6 +73,7 @@ class GmmScorer:
         warm_start: bool = False,
         reg_covar: float = 1e-6,
         id_component: str = "high_mean",
+        random_state: int | None = None,
     ):
         self.components = components
         self.accumulate = accumulate
@@ -80,6 +81,7 @@ class GmmScorer:
         self.warm_start = warm_start
         self.reg_covar = reg_covar
         self.id_component = id_component
+        self.random_state = random_state
         self.history: list[np.ndarray] = []   # one [n,1] array per step
         self.gmm: GaussianMixture | None = None
 
@@ -102,6 +104,7 @@ class GmmScorer:
             reg_covar=self.reg_covar,
             warm_start=self.warm_start,
             means_init=(self.gmm.means_ if self.warm_start and self.gmm is not None else None),
+            random_state=self.random_state,
         )
         gmm.fit(data)
         self.gmm = gmm
@@ -169,7 +172,7 @@ def forward_and_adapt(
     l1_weight: float = 0.03,
     device: str = "cpu",
 ) -> torch.Tensor:
-    """One Cassano step: score (frozen) → GMM posterior → soft-labeled update (adapted).
+    """One NOVA-TTA step: score (frozen) → GMM posterior → soft-labeled update (adapted).
 
     Returns p_ood [N] (cpu) for logging. LR warmup is applied by the caller.
     """
@@ -181,7 +184,7 @@ def forward_and_adapt(
 
     # Update the adapted model with the soft-labeled loss.
     feat, logits = forward_feat_logits(model, x.to(device))
-    loss = cassano_loss(logits, feat, p_ood, l1_weight)
+    loss = nova_tta_loss(logits, feat, p_ood, l1_weight)
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()

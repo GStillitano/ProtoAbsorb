@@ -2,7 +2,7 @@
 
 **Thesis.** TENT's entropy minimisation inflates feature norms uniformly for both csID and csOOD samples, collapsing the norm gap that energy-based OOD scores rely on. OOD detection degrades monotonically over the stream regardless of how well the ID/OOD split is performed.
 
-**Goal.** Reproduce TENT, characterise the failure mode geometrically (Experiments 1–2), then fix it with **Cassano** — a soft-labeled, norm-suppressing open-set TTA method.
+**Goal.** Reproduce TENT, characterise the failure mode geometrically (Experiments 1–2), then fix it with **NOVA-TTA** — a soft-labeled, norm-suppressing open-set TTA method.
 
 ---
 
@@ -20,7 +20,7 @@ src/
   data/           dataset loaders (csID: CIFAR-10-C; csOOD: SVHN-C, Rome32 stub),
                   seeded adapt/diagnostic pool split, frozen stream builder,
                   shared held-out diagnostic loader (diagnostic.py)
-  tta/            TTA methods: TENT (official, unchanged) + Cassano (the fix)
+  tta/            TTA methods: TENT (official, unchanged) + NOVA-TTA (the fix)
   metrics/        OOD scores (energy, max-logit, max-softmax),
                   OOD metrics (AUROC, FPR95, OSCR, H-score),
                   geometry (feature norms, cosines, centroid distances)
@@ -73,22 +73,22 @@ uv run python scripts/reproduce_tent.py
 # Run Phase 1 adaptation for one stream (defaults: gaussian_noise, open_set=true, svhn_c, seed=0)
 uv run python scripts/phase1_adapt.py --method tent
 uv run python scripts/phase1_adapt.py --method bn_adapt
-uv run python scripts/phase1_adapt.py --method cassano
+uv run python scripts/phase1_adapt.py --method nova-tta
 
 # Compute metrics (output → results/)
 uv run python scripts/exp1_auroc.py \
     --streams tent/gaussian_noise_svhn_c_open_seed0 \
               bn_adapt/gaussian_noise_svhn_c_open_seed0 \
-              cassano/gaussian_noise_svhn_c_open_seed0
+              nova-tta/gaussian_noise_svhn_c_open_seed0
 
 uv run python scripts/exp2_geometry.py --stream tent/gaussian_noise_svhn_c_open_seed0
-uv run python scripts/maxcos_dist.py   --stream cassano/gaussian_noise_svhn_c_open_seed0
+uv run python scripts/maxcos_dist.py   --stream nova-tta/gaussian_noise_svhn_c_open_seed0
 
 # Render figures (output → figures/)
 uv run python scripts/plot.py --exp 1 \
     --streams tent/gaussian_noise_svhn_c_open_seed0 \
               bn_adapt/gaussian_noise_svhn_c_open_seed0 \
-              cassano/gaussian_noise_svhn_c_open_seed0
+              nova-tta/gaussian_noise_svhn_c_open_seed0
 
 uv run python scripts/plot.py --exp 2 --streams tent/gaussian_noise_svhn_c_open_seed0
 

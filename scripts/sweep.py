@@ -13,7 +13,7 @@ import yaml
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method",   default="tent", choices=["tent", "bn_adapt", "cassano"])
+    parser.add_argument("--method",   default="tent", choices=["tent", "bn_adapt", "nova-tta"])
     parser.add_argument("--data_dir", default="./data")
     parser.add_argument("--device",   default=None)
     args = parser.parse_args()
