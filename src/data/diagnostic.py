@@ -24,7 +24,7 @@ def load_diagnostic(meta: dict, data_dir: str) -> tuple[torch.Tensor, torch.Tens
     elif meta["csood_source"] == "rome32":
         from src.data.rome32 import load_rome32_c
         x_csood, _ = load_rome32_c(
-            folder=str(Path(data_dir) / "rome32/raw"),
+            folder=str(Path(data_dir) / "rome32/export32"),
             corruption=meta["corruption"], severity=meta["severity"],
         )
     else:

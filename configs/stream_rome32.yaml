@@ -1,0 +1,21 @@
+# Rome32-adapted stream defaults (smaller sample budget than SVHN-C).
+#
+# Rome32 export32 holds ~2,597 valid images (542 zero-byte placeholders in
+# monete are filtered by the loader). With n_diag_csood=2000 the csOOD adapt
+# pool is ~597, so we pick (T, n_ood) such that T * n_ood stays inside the
+# pool for zero-repeat adaptation.
+#
+# Open-set (alpha = n_ood / N):
+#   N=200, n_ood=25, n_id=175, T=20  ->  500 OOD draws (<=597 pool)
+#
+# Closed-set runs are skipped for rome32 in sweep.py (closed-set never uses
+# the csOOD pool, so it would duplicate the matching svhn_c closed run).
+
+corruption:   gaussian_noise
+severity:     5
+open_set:     true
+N:            200
+n_ood:        25
+T:            20
+csood_source: rome32
+seed:         0

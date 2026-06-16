@@ -25,8 +25,9 @@ def main():
     seeds        = cfg["seed"]
 
     for corruption, open_set, csood_source, seed in product(corruptions, open_sets, csood_sources, seeds):
-        if csood_source == "rome32":
-            print(f"Skipping rome32 (not yet available): {corruption} open_set={open_set} seed={seed}")
+        # Closed-set never uses the csOOD pool, so a rome32 closed run would
+        # duplicate the corresponding svhn_c closed run. Skip it.
+        if csood_source == "rome32" and not open_set:
             continue
 
         cmd = [

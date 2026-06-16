@@ -43,7 +43,7 @@ data/             downloaded datasets
 uv sync
 ```
 
-Data is downloaded automatically on first run (CIFAR-10-C via RobustBench, SVHN via torchvision). Rome32 uses the same sample budget as SVHN's test split and loads at most 26,032 images when the raw folder is populated.
+Data is downloaded automatically on first run (CIFAR-10-C via RobustBench, SVHN via torchvision). Rome32 is provided as `dataset.7z` at the repo root; extract its `export32/` tree under `data/rome32/export32/{affreschi,fontanelle,monete,pasta,statue,_ood}/` — the loader filters zero-byte placeholders and yields 2,597 usable 32×32 images. Rome32 uses an adapted stream config (`configs/stream_rome32.yaml`: T=20, n_ood=25, α=0.125) automatically selected by `phase1_adapt.py` when `--csood_source rome32`.
 
 ---
 

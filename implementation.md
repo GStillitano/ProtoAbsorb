@@ -43,7 +43,7 @@ model = load_model()  # BN train mode, batch stats, no running stats
 
 **csOOD:** two sources, run separately:
 - `svhn_c` — SVHN test set + same 15 corruptions. Run first.
-- `rome32` — research group images (classic Rome) resized to 32×32 + same corruptions. Loader is capped to the SVHN test-set size so extra images are never touched (`data/rome32/raw/`).
+- `rome32` — research group images (5 Rome scene classes + `_ood` bucket) pre-cropped to 32×32 in `data/rome32/export32/{class}/` and corrupted via the same CIFAR-10-C pipeline. The archive ships with 542 zero-byte placeholder PNGs in `monete/`; the loader skips them, leaving 2,597 usable images. Adapted stream defaults in `configs/stream_rome32.yaml` (T=20, n_ood=25, α=0.125) are auto-selected when `csood_source=rome32`.
 
 ---
 
@@ -98,7 +98,7 @@ Split is done by `DataPools` using **stream seed** — same seed in Phase 1 and 
 │   │   ├── cifar10.py    # load_cifar10_data() — clean test set, [0,1] CHW, no normalization
 │   │   ├── cifar10c.py   # load_cifar10c_data()
 │   │   ├── svhnc.py      # load_svhn_c()
-│   │   ├── rome32.py     # load_rome32_c()  [stub]
+│   │   ├── rome32.py     # load_rome32_c()  (export32/, filters 0-byte files)
 │   │   ├── pools.py      # DataPools — disjoint adapt/diagnostic split
 │   │   ├── diagnostic.py # load_diagnostic() — shared held-out D loader for Phase 2 scripts
 │   │   └── stream.py     # build_stream() — frozen adaptation stream, sequential non-repeating

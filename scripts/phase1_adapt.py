@@ -47,13 +47,21 @@ def main():
     parser.add_argument("--csood_source", default=None)
     parser.add_argument("--N",            type=int,   default=None)
     parser.add_argument("--T",            type=int,   default=None)
+    parser.add_argument("--n_ood",        type=int,   default=None,
+                        help="OOD samples per open-set batch (overrides default N//2)")
     parser.add_argument("--seed",         type=int,   default=None)
     parser.add_argument("--lr",           type=float, default=None)
     parser.add_argument("--data_dir",     default="./data")
     parser.add_argument("--device",       default=None)
     args = parser.parse_args()
 
-    stream_cfg   = yaml.safe_load(Path("configs/stream.yaml").read_text())
+    # Resolve csood_source first to pick the matching stream defaults.
+    _base_stream_cfg = yaml.safe_load(Path("configs/stream.yaml").read_text())
+    _csood_for_cfg   = args.csood_source or _base_stream_cfg["csood_source"].split()[0]
+    if _csood_for_cfg == "rome32":
+        stream_cfg = yaml.safe_load(Path("configs/stream_rome32.yaml").read_text())
+    else:
+        stream_cfg = _base_stream_cfg
     tent_cfg     = yaml.safe_load(Path("configs/tent.yaml").read_text())
     nova_tta_cfg  = yaml.safe_load(Path("configs/nova-tta.yaml").read_text())
     diag_cfg     = yaml.safe_load(Path("configs/diagnostic.yaml").read_text())
@@ -65,6 +73,7 @@ def main():
     csood_source = args.csood_source or stream_cfg["csood_source"].split()[0]
     N            = args.N            or stream_cfg["N"]
     T            = args.T            or stream_cfg["T"]
+    n_ood        = args.n_ood        if args.n_ood is not None else stream_cfg.get("n_ood")
     seed         = args.seed         if args.seed is not None else stream_cfg["seed"]
     lr           = args.lr           or method_cfg["lr"]
     device       = args.device       or get_device()
@@ -79,7 +88,7 @@ def main():
     elif csood_source == "rome32":
         from src.data.rome32 import load_rome32_c
         x_csood, _ = load_rome32_c(
-            folder=str(Path(args.data_dir) / "rome32/raw"),
+            folder=str(Path(args.data_dir) / "rome32/export32"),
             corruption=corruption, severity=severity,
         )
     else:
@@ -95,6 +104,7 @@ def main():
         adapt_csid_indices=pools.csid_adapt,
         adapt_csood_indices=pools.csood_adapt,
         N=N, T=T, open_set=open_set, seed=seed,
+        n_ood=n_ood,
     )
 
     # ── Load and configure model ───────────────────────────────────────────────
@@ -159,7 +169,7 @@ def main():
     # ── Write meta.json ───────────────────────────────────────────────────────
     meta = {
         "method": args.method, "corruption": corruption, "severity": severity,
-        "open_set": open_set, "N": N, "T": T, "csood_source": csood_source, "seed": seed,
+        "open_set": open_set, "N": N, "T": T, "n_ood": n_ood, "csood_source": csood_source, "seed": seed,
         "batches": stream.to_meta_list(),
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))

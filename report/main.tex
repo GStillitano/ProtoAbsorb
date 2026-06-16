@@ -950,8 +950,106 @@ rises and accuracy does not drop.
   \end{tabular}
 \end{table}
 
-\noindent\emph{To do:} the sweep uses SVHN-C as the only \csood{} source; the
-same evaluation with Rome32 as \csood{} remains to be run.
+\subsection{Bonus: Rome32 as the \csood{} source}\label{sec:nova-rome32}
+
+We re-run the open-set protocol with Rome32-C in place of SVHN-C, under the
+adapted regime of App.~\ref{app:rome32} (shorter stream and lower per-batch
+\csood{} fraction owing to the small sample size: $T{=}20$, $N{=}200$,
+$\alpha{=}0.125$). The Rome32 \csood{} pool is two orders of magnitude smaller
+than SVHN's, and Rome scene patches are visually closer to natural CIFAR-10
+classes than SVHN digits, so we expect a milder failure mode and a tighter
+operating regime.
+
+\paragraph{AUROC vs.\ accuracy.} On \texttt{gaussian\_noise}, the closed-vs.\
+open conflict remains visible but is weaker than under SVHN-C: \method{Tent}
+drifts $0.76\!\to\!0.75$ (cf.\ $0.79\!\to\!0.65$ on SVHN-C),
+\method{NOVA-TTA} rises to $0.76\!\to\!0.87$. Both methods recover \csid{}
+accuracy comparably ($0.76\!\to\!0.79$ Tent vs.\ $0.76\!\to\!0.80$
+\method{NOVA-TTA}).
+
+\paragraph{Geometry.} The same channels move in the same directions, with
+smaller magnitudes consistent with the shorter stream
+(Table~\ref{tab:rome32-geom}). Under \method{Tent}, \csood{} max cosine still
+re-aligns ($0.41\!\to\!0.45$) and OOD inputs still drift toward the source
+centroids ($2.80\!\to\!2.67$). Under \method{NOVA-TTA} the angular collapse
+is mostly halted (max cosine $0.41\!\to\!0.43$, OOD confidence
+$0.71\!\to\!0.70$), and the $L_1$ norm gap opens dramatically
+($-1.9\!\to\!4.1$, vs.\ Tent stuck at $-1.95$), re-creating the margin the
+energy score reads.
+
+\begin{table}[h]
+  \centering
+  \small
+  \caption{Rome32 (\texttt{gaussian\_noise}, $T{=}20$, $\alpha{=}0.125$):
+  geometry diagnostics start$\to$end of the stream.}
+  \label{tab:rome32-geom}
+  \begin{tabular}{lcc}
+    \toprule
+                                & \method{Tent} & \method{NOVA-TTA}\\
+    \midrule
+    AUROC                       & $0.76\to0.75$ & $0.76\to\textbf{0.87}$\\
+    Accuracy                    & $0.76\to0.79$ & $0.76\to\textbf{0.80}$\\
+    $L_2$ norm gap $\Delta_2$   & $0.22\to0.28$ & $0.24\to\textbf{1.26}$\\
+    $L_1$ norm gap $\Delta_1$   & $-1.98\to-1.95$ & $-1.92\to\textbf{4.12}$\\
+    \csood{} max cosine         & $0.41\to0.45$ & $0.41\to\textbf{0.43}$\\
+    \csood{} dist.\ to centroid & $2.80\to2.67$ & $2.81\to\textbf{2.69}$\\
+    \csood{} confidence         & $0.72\to0.78$ & $0.71\to\textbf{0.70}$\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Across corruptions.} We repeat the open-set Rome32 protocol on
+all fifteen CIFAR-10-C corruptions (Table~\ref{tab:rome32-corruptions}).
+\method{Tent}'s mean energy-score AUROC drifts $0.74\!\to\!0.73$ (decay
+present but small under $T{=}20$), while \method{NOVA-TTA} raises it on
+\emph{every} corruption to $0.75\!\to\!0.84$ (mean $+0.09$, range $+0.01$
+to $+0.26$), at \csid{} accuracy matched to \method{Tent}'s ($0.81\!\to\!0.84$
+both). The trend mirrors the SVHN-C sweep (Table~\ref{tab:corruptions}):
+detection improves under \method{NOVA-TTA} at no accuracy cost. Gains are
+largest on \texttt{pixelate} ($+0.26$), \texttt{motion\_blur} ($+0.22$),
+and \texttt{defocus\_blur} ($+0.18$); smallest on \texttt{glass\_blur}
+($+0.01$), as on SVHN-C the corruption with the weakest frozen alignment
+signal.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{\method{Tent} vs.\ \method{NOVA-TTA} on Rome32 across the fifteen
+  CIFAR-10-C corruptions (Rome32-C as \csood, $T{=}20$, $\alpha{=}0.125$):
+  energy-score AUROC and \csid{} accuracy, start$\to$end. The higher final
+  AUROC/Acc per row is in \textbf{bold}.}
+  \label{tab:rome32-corruptions}
+  \begin{tabular}{lcccc}
+    \toprule
+    & \multicolumn{2}{c}{AUROC ($0\to T$)} & \multicolumn{2}{c}{Acc ($0\to T$)}\\
+    \cmidrule(lr){2-3}\cmidrule(lr){4-5}
+    Corruption & \method{Tent} & \method{NOVA-TTA} & \method{Tent} & \method{NOVA-TTA}\\
+    \midrule
+    \texttt{brightness}         & $0.76\to0.74$ & $0.76\to\textbf{0.87}$ & $0.90\to\textbf{0.92}$ & $0.90\to0.91$\\
+    \texttt{contrast}           & $0.76\to0.72$ & $0.76\to\textbf{0.83}$ & $0.86\to\textbf{0.87}$ & $0.86\to\textbf{0.87}$\\
+    \texttt{defocus\_blur}      & $0.66\to0.66$ & $0.66\to\textbf{0.84}$ & $0.82\to0.82$ & $0.82\to\textbf{0.85}$\\
+    \texttt{elastic\_transform} & $0.74\to0.75$ & $0.74\to\textbf{0.81}$ & $0.75\to0.77$ & $0.76\to\textbf{0.77}$\\
+    \texttt{fog}                & $0.84\to0.77$ & $0.84\to\textbf{0.91}$ & $0.84\to0.85$ & $0.84\to\textbf{0.86}$\\
+    \texttt{frost}              & $0.71\to0.75$ & $0.72\to\textbf{0.79}$ & $0.83\to\textbf{0.88}$ & $0.83\to0.86$\\
+    \texttt{gaussian\_noise}    & $0.76\to0.75$ & $0.76\to\textbf{0.87}$ & $0.76\to0.79$ & $0.76\to\textbf{0.80}$\\
+    \texttt{glass\_blur}        & $0.53\to0.63$ & $0.54\to\textbf{0.64}$ & $0.68\to\textbf{0.72}$ & $0.68\to\textbf{0.72}$\\
+    \texttt{impulse\_noise}     & $0.71\to0.73$ & $0.72\to\textbf{0.80}$ & $0.69\to\textbf{0.75}$ & $0.69\to0.74$\\
+    \texttt{jpeg\_compression}  & $0.77\to0.73$ & $0.77\to\textbf{0.86}$ & $0.81\to\textbf{0.83}$ & $0.81\to\textbf{0.83}$\\
+    \texttt{motion\_blur}       & $0.77\to0.68$ & $0.76\to\textbf{0.90}$ & $0.86\to\textbf{0.88}$ & $0.85\to\textbf{0.88}$\\
+    \texttt{pixelate}           & $0.83\to0.71$ & $0.83\to\textbf{0.97}$ & $0.82\to0.84$ & $0.82\to\textbf{0.85}$\\
+    \texttt{shot\_noise}        & $0.83\to0.78$ & $0.82\to\textbf{0.93}$ & $0.80\to0.81$ & $0.80\to\textbf{0.84}$\\
+    \texttt{snow}               & $0.72\to0.74$ & $0.72\to\textbf{0.81}$ & $0.85\to\textbf{0.88}$ & $0.85\to0.87$\\
+    \texttt{zoom\_blur}         & $0.79\to0.76$ & $0.79\to\textbf{0.85}$ & $0.91\to\textbf{0.92}$ & $0.91\to\textbf{0.92}$\\
+    \midrule
+    mean                        & $0.74\to0.73$ & $0.75\to\textbf{0.84}$ & $0.81\to0.84$ & $0.81\to\textbf{0.84}$\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\noindent The Rome32 results confirm, on a second, smaller, semantically
+distinct \csood{} source, the SVHN-C finding: frozen alignment-scored,
+norm-suppressing TTA preserves open-set detection over the stream where
+plain entropy minimisation degrades it, with matched accuracy.
 
 % =====================================================================
 \section{Conclusions and Discussion}
@@ -967,10 +1065,12 @@ design \method{NOVA-TTA}, which supervises with a statistic the adaptation
 cannot corrupt (a frozen, norm-invariant alignment score) and, unable to
 undo the angular collapse, restores detection on the lever it \emph{can}
 control---suppressing likely-\csood{} feature norm to re-open the gap.
-\method{NOVA-TTA} reverses the collapse---AUROC $0.79\!\to\!0.93$---at no
-meaningful accuracy cost.
-Natural next steps are a second \csood{} source (Rome32) and a head-to-head
-against \method{UniEnt} under this protocol.
+\method{NOVA-TTA} reverses the collapse---AUROC $0.79\!\to\!0.93$ under
+SVHN-C, $0.75\!\to\!0.84$ under Rome32---at no meaningful accuracy cost
+(\S\ref{sec:nova-rome32}, App.~\ref{app:rome32}). The Rome32 sweep, on a
+smaller and semantically closer \csood{} source under a shorter stream,
+reproduces the trend on every one of the 15 corruptions. A natural next
+step is a head-to-head against \method{UniEnt} under the same protocol.
 
 % =====================================================================
 \begin{thebibliography}{9}
@@ -1016,5 +1116,46 @@ The following analyses are planned but not yet included:
 
 \section{Implementation Details}\label{app:impl}
 % TODO: architecture, hyperparameters, training/adaptation setup.
+
+\section{Rome32: Design and Adapted Protocol}\label{app:rome32}
+
+\paragraph{Dataset design.} Rome32 is a custom \csood{} source assembled by
+the research group from photographs collected around Rome and grouped into
+five semantically disjoint scene categories---\texttt{affreschi} (frescoes),
+\texttt{fontanelle} (drinking fountains), \texttt{monete} (coins),
+\texttt{pasta}, and \texttt{statue}---plus a residual \texttt{\_ood} bucket of
+images that did not fit any category. Each image was cropped and resized to
+the $32\times32$ resolution of CIFAR-10 (\texttt{export32/} pipeline) and
+then passed through the same corruption pipeline as CIFAR-10-C to yield a
+covariate-shifted stream (Rome32-C). After excluding zero-byte placeholders
+in the archive (the loader filters them at read time), the usable image
+count per class is: \texttt{affreschi} 641, \texttt{fontanelle} 397,
+\texttt{monete} 147, \texttt{pasta} 144, \texttt{statue} 525,
+\texttt{\_ood} 743, for a total of \textbf{2{,}597} images. None of these
+classes overlaps with the CIFAR-10 label set, so Rome32 is a valid open-set
+\csood{} source.
+
+\paragraph{Adapted protocol.} Rome32 holds two orders of magnitude fewer
+samples than SVHN, so the open-set stream must be shorter and sparser in
+\csood{} to keep adaptation \emph{zero-repeat} (every csOOD sample seen at
+most once during a stream). Relative to the SVHN-C setting (\S\ref{sec:protocol},
+App.~\ref{app:impl}) we keep the batch size $N{=}200$ but
+(i) lower the per-batch \csood{} fraction to $\alpha=25/200=0.125$ (i.e.,
+$25$ \csood{} + $175$ \csid{} per batch) and (ii) shorten the stream to
+$T=20$ steps. This consumes $T\cdot n_{\text{ood}}=500$ csOOD draws out of
+the $\sim597$-sample adapt pool ($2597$ total minus the $2000$ held out for
+the diagnostic set), keeping the adaptation pass non-repeating. Everything
+else---the two-phase time-tracking protocol, the frozen scorer, the
+held-out diagnostic set ($2000$ csID + $2000$ csOOD, fixed indices), the
+metrics---is unchanged, so the Rome32 trajectories are directly comparable
+to the SVHN-C ones up to the $(T,\alpha)$ knobs.
+
+\paragraph{Implementation.} The Rome32-specific stream defaults live in
+\texttt{configs/stream\_rome32.yaml} and are read automatically by
+\texttt{phase1\_adapt.py} when \texttt{csood\_source=rome32}; the
+non-default $\alpha$ is plumbed through \texttt{build\_stream(\ldots,
+n\_ood=25)}. Closed-set Rome32 runs are skipped (a closed-set stream never
+touches the \csood{} pool, so it would duplicate the matching SVHN-C
+closed-set run).
 
 \end{document}

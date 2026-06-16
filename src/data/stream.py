@@ -50,17 +50,23 @@ def build_stream(
     T: int,
     open_set: bool,
     seed: int = 0,
+    n_ood: int | None = None,
 ) -> AdaptationStream:
     """Build a frozen adaptation stream of T batches, each size N.
 
-    open_set=True:  n_ood = N//2, n_id = N//2 per batch (balanced).
-    open_set=False: n_ood = 0,    n_id = N   per batch (closed-set).
+    open_set=True:  default n_ood = N//2, n_id = N - n_ood per batch.
+                    Pass `n_ood` to override (e.g. low-alpha Rome32 protocol).
+    open_set=False: n_ood = 0, n_id = N per batch (closed-set).
 
     Examples never repeat within a full pass through the adapt pool.
     With T=80, N=200, open_set=True: 80*100=8000 draws = pool size exactly (zero repeats).
     """
-    n_ood = N // 2 if open_set else 0
-    n_id  = N - n_ood
+    if not open_set:
+        n_ood = 0
+    elif n_ood is None:
+        n_ood = N // 2
+    assert 0 <= n_ood <= N, f"n_ood={n_ood} out of range for N={N}"
+    n_id = N - n_ood
 
     rng = np.random.default_rng(seed)
     csid_samples  = _sequential_samples(rng, adapt_csid_indices,  T * n_id)
