@@ -234,5 +234,5 @@ uv run python scripts/aggregate_corruptions.py --csood_source svhn_c
 ## Reproducibility
 
 Seeds drive the adapt/diagnostic pool split, the adaptation stream order, and the GMM, so a stream is
-fully reproducible from its `meta.json`. The Phase-1/Phase-2 split guarantees evaluation never touches
+fully reproducible from its `meta.json`. The Phase-1/Phase-2 split guarantees that evaluation never touches
 data seen during adaptation.
